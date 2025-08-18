@@ -1,0 +1,406 @@
+name: Test Suite
+
+on:
+  push:
+    branches: [ main, develop, feature/* ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    # Run tests daily at 2 AM UTC
+    - cron: '0 2 * * *'
+
+env:
+  NODE_VERSION: '18'
+
+jobs:
+  # Matrix testing across different Node.js versions
+  test-matrix:
+    name: Test Node.js ${{ matrix.node-version }}
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        node-version: ['18', '20']
+      fail-fast: false
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: testpass
+          POSTGRES_DB: complaint_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Setup test database
+        run: |
+          npx prisma db push
+          npm run db:seed
+        env:
+          DATABASE_URL: postgresql://postgres:testpass@localhost:5432/complaint_test
+
+      - name: Run unit tests with coverage
+        run: npm run test:unit -- --coverage
+        env:
+          NODE_ENV: test
+
+      - name: Run integration tests
+        run: npm run test:integration
+        env:
+          DATABASE_URL: postgresql://postgres:testpass@localhost:5432/complaint_test
+          REDIS_URL: redis://localhost:6379
+          JWT_SECRET: test-secret-key
+          NODE_ENV: test
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        if: matrix.node-version == '18'
+        with:
+          file: ./coverage/lcov.info
+          flags: unittests
+          name: codecov-umbrella
+
+  # Frontend-specific tests
+  test-frontend:
+    name: Frontend Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run frontend unit tests
+        run: npm run test:client
+
+      - name: Run component tests
+        uses: cypress-io/github-action@v6
+        with:
+          component: true
+          browser: chrome
+
+      - name: Upload component test artifacts
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: component-test-artifacts
+          path: |
+            cypress/screenshots/
+            cypress/videos/
+
+  # Backend-specific tests
+  test-backend:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: testpass
+          POSTGRES_DB: complaint_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Setup test database
+        run: |
+          npx prisma db push
+          npm run db:seed
+        env:
+          DATABASE_URL: postgresql://postgres:testpass@localhost:5432/complaint_test
+
+      - name: Run backend unit tests
+        run: npm run test:server
+        env:
+          DATABASE_URL: postgresql://postgres:testpass@localhost:5432/complaint_test
+          JWT_SECRET: test-secret-key
+          NODE_ENV: test
+
+      - name: Run API tests
+        run: npm run test:api
+        env:
+          DATABASE_URL: postgresql://postgres:testpass@localhost:5432/complaint_test
+          JWT_SECRET: test-secret-key
+          NODE_ENV: test
+
+  # Performance tests
+  test-performance:
+    name: Performance Tests
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: testpass
+          POSTGRES_DB: complaint_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build application
+        run: npm run build
+
+      - name: Setup database
+        run: |
+          npx prisma generate
+          npx prisma db push
+          npm run db:seed
+        env:
+          DATABASE_URL: postgresql://postgres:testpass@localhost:5432/complaint_test
+
+      - name: Start application
+        run: |
+          npm start &
+          sleep 30
+        env:
+          DATABASE_URL: postgresql://postgres:testpass@localhost:5432/complaint_test
+          JWT_SECRET: test-secret-key
+          NODE_ENV: production
+          PORT: 3000
+
+      - name: Run Lighthouse performance audit
+        uses: treosh/lighthouse-ci-action@v10
+        with:
+          configPath: './lighthouserc.json'
+          uploadArtifacts: true
+          temporaryPublicStorage: true
+
+      - name: Run load tests
+        run: |
+          npm install -g artillery
+          artillery run artillery-config.yml
+        env:
+          TARGET_URL: http://localhost:3000
+
+      - name: Upload performance results
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-results
+          path: |
+            lighthouse-results.json
+            artillery-report.html
+
+  # Security tests
+  test-security:
+    name: Security Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run npm audit
+        run: npm audit --audit-level moderate
+
+      - name: Run Snyk security scan
+        uses: snyk/actions/node@master
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high
+
+      - name: Run OWASP ZAP security scan
+        if: github.event_name == 'push'
+        uses: zaproxy/action-full-scan@v0.7.0
+        with:
+          target: 'http://localhost:3000'
+          fail_action: false
+          allow_issue_writing: false
+
+  # Browser compatibility tests
+  test-browser-compatibility:
+    name: Browser Compatibility Tests
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+    
+    strategy:
+      matrix:
+        browser: [chrome, firefox, edge]
+      fail-fast: false
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: testpass
+          POSTGRES_DB: complaint_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build application
+        run: npm run build
+
+      - name: Setup database
+        run: |
+          npx prisma generate
+          npx prisma db push
+          npm run db:seed
+        env:
+          DATABASE_URL: postgresql://postgres:testpass@localhost:5432/complaint_test
+
+      - name: Start application
+        run: |
+          npm start &
+          sleep 30
+        env:
+          DATABASE_URL: postgresql://postgres:testpass@localhost:5432/complaint_test
+          JWT_SECRET: test-secret-key
+          NODE_ENV: test
+
+      - name: Run E2E tests on ${{ matrix.browser }}
+        uses: cypress-io/github-action@v6
+        with:
+          wait-on: 'http://localhost:3000'
+          wait-on-timeout: 120
+          browser: ${{ matrix.browser }}
+          spec: cypress/e2e/critical-path.cy.ts
+
+      - name: Upload browser test artifacts
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: browser-test-${{ matrix.browser }}-artifacts
+          path: |
+            cypress/screenshots/
+            cypress/videos/
+
+  # Test results summary
+  test-summary:
+    name: Test Summary
+    runs-on: ubuntu-latest
+    needs: [test-matrix, test-frontend, test-backend, test-performance, test-security, test-browser-compatibility]
+    if: always()
+    
+    steps:
+      - name: Test Results Summary
+        run: |
+          echo "## Test Results Summary" >> $GITHUB_STEP_SUMMARY
+          echo "| Test Suite | Result |" >> $GITHUB_STEP_SUMMARY
+          echo "|------------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Matrix Tests | ${{ needs.test-matrix.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Frontend Tests | ${{ needs.test-frontend.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Backend Tests | ${{ needs.test-backend.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Performance Tests | ${{ needs.test-performance.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Security Tests | ${{ needs.test-security.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Browser Compatibility | ${{ needs.test-browser-compatibility.result }} |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Notify test results
+        uses: 8398a7/action-slack@v3
+        if: always() && (needs.test-matrix.result == 'failure' || needs.test-frontend.result == 'failure' || needs.test-backend.result == 'failure')
+        with:
+          status: failure
+          channel: '#ci-cd'
+          text: |
+            🚨 Test failures detected!
+            Branch: ${{ github.ref }}
+            Commit: ${{ github.sha }}
+            Workflow: ${{ github.workflow }}
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
