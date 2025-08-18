@@ -1,62 +1,106 @@
-node_modules
-dist
-.git
-.gitignore
-README.md
-.env
-.env.local
-.env.development
-.env.test
-.env.production
+# Dependencies
+node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-.DS_Store
-.vscode
-.idea
+
+# Runtime files
+*.log
+logs/
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+*.lcov
+
+# Build outputs
+dist/
+build/
+.next/
+out/
+
+# Environment variables
+.env*
+!.env.example
+
+# Database
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+prisma/migrations/
+
+# Uploads and user data
+uploads/
+data/
+backups/
+
+# IDE files
+.vscode/
+.idea/
 *.swp
 *.swo
 *~
-.cursor
-coverage
-.nyc_output
-.eslintcache
-*.log
-*.lock
-*.tmp
-*.tmp.*
-log.txt
 
+# OS generated files
 .DS_Store
-node_modules
-**/node_modules/**
-build
-data
-.env
-load-ids.txt
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
 
-server
-tmp
-types
-.git
+# Git
+.git/
 .gitignore
-dist
-service
-tests
-fixtures-pages
-fixtures-apps
 
-# Netlify
-.netlify
-packages/ml-air/lib
-packages/ml-air/bin
-packages/ml-air/project
-packages/ml-air/share
-packages/ml-air/random_forest_classification/
-packages/ml-air/__pycache__/
-packages/ml-air/app/__pycache__/
-packages/vcp-common/native-bridge/build
-packages/vcp-common/_tests_/dataset-ranking.csv
-node_modules/
-Dockerfile
-.gitignore
+# Testing
+cypress/screenshots/
+cypress/videos/
+.nyc_output/
+test-results/
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Docker files
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+.circleci/
+
+# Temporary files
+tmp/
+temp/
+.tmp/
+
+# Cache directories
+.cache/
+.parcel-cache/
+.vite/
+
+# Development tools
+.eslintcache
+.stylelintcache
+
+# Package manager files
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# TypeScript
+*.tsbuildinfo
+
+# Monitoring and analytics
+.sentryclirc
