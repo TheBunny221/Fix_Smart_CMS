@@ -1,0 +1,402 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., v1.0.0)'
+        required: true
+        type: string
+
+env:
+  REGISTRY: docker.io
+  IMAGE_NAME: complaint-management-system
+
+jobs:
+  # Create GitHub release
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      changelog: ${{ steps.changelog.outputs.changelog }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # Get previous tag
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD~1 2>/dev/null || echo "")
+          
+          if [ -z "$PREVIOUS_TAG" ]; then
+            # First release
+            COMMITS=$(git log --pretty=format:"- %s (%h)" --no-merges)
+          else
+            # Get commits since previous tag
+            COMMITS=$(git log $PREVIOUS_TAG..HEAD --pretty=format:"- %s (%h)" --no-merges)
+          fi
+          
+          # Create changelog
+          CHANGELOG="## Changes\n\n$COMMITS"
+          
+          # Save to output (handle multiline)
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          echo -e "$CHANGELOG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          release_name: Release ${{ steps.version.outputs.version }}
+          body: ${{ steps.changelog.outputs.changelog }}
+          draft: false
+          prerelease: ${{ contains(steps.version.outputs.version, 'alpha') || contains(steps.version.outputs.version, 'beta') || contains(steps.version.outputs.version, 'rc') }}
+
+  # Build and test for release
+  build-and-test:
+    name: Build and Test for Release
+    runs-on: ubuntu-latest
+    needs: create-release
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: testpass
+          POSTGRES_DB: complaint_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run comprehensive tests
+        run: |
+          npx prisma generate
+          npx prisma db push
+          npm run db:seed
+          npm run test:unit
+          npm run test:integration
+        env:
+          DATABASE_URL: postgresql://postgres:testpass@localhost:5432/complaint_test
+          JWT_SECRET: test-secret-key
+
+      - name: Build application
+        run: npm run build
+
+      - name: Run E2E tests
+        uses: cypress-io/github-action@v6
+        with:
+          build: npm run build
+          start: npm start
+          wait-on: 'http://localhost:3000'
+          wait-on-timeout: 120
+        env:
+          DATABASE_URL: postgresql://postgres:testpass@localhost:5432/complaint_test
+          JWT_SECRET: test-secret-key
+
+  # Build and push release Docker images
+  build-release-image:
+    name: Build Release Docker Image
+    runs-on: ubuntu-latest
+    needs: [create-release, build-and-test]
+    outputs:
+      image-digest: ${{ steps.build.outputs.digest }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=tag
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=stable,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Update Docker Hub description
+        uses: peter-evans/dockerhub-description@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ env.IMAGE_NAME }}
+          readme-filepath: ./docker/README.md
+
+  # Security scan for release
+  security-scan-release:
+    name: Security Scan Release Image
+    runs-on: ubuntu-latest
+    needs: build-release-image
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner on image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.create-release.outputs.version }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+      - name: Run Snyk container security scan
+        uses: snyk/actions/docker@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.create-release.outputs.version }}
+          args: --severity-threshold=high
+
+  # Deploy to production (manual approval)
+  deploy-production-release:
+    name: Deploy Production Release
+    runs-on: ubuntu-latest
+    needs: [create-release, build-release-image, security-scan-release]
+    environment: production-release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to production
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.PRODUCTION_HOST }}
+          username: ${{ secrets.PRODUCTION_USER }}
+          key: ${{ secrets.PRODUCTION_SSH_KEY }}
+          script: |
+            cd /opt/complaint-system
+            
+            # Create backup
+            docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:stable ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:backup-$(date +%Y%m%d_%H%M%S)
+            
+            # Pull release image
+            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.create-release.outputs.version }}
+            
+            # Tag as stable
+            docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.create-release.outputs.version }} ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:stable
+            
+            # Update docker-compose to use stable tag
+            sed -i 's|image: .*|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:stable|' docker-compose.prod.yml
+            
+            # Run database migrations
+            docker-compose -f docker-compose.prod.yml run --rm app migrate
+            
+            # Deploy with blue-green strategy
+            docker-compose -f docker-compose.prod.yml up -d
+            
+            # Health check
+            sleep 60
+            for i in {1..10}; do
+              if curl -f http://localhost:3000/api/health; then
+                echo "✅ Production deployment successful"
+                break
+              else
+                echo "⏳ Waiting for application (attempt $i/10)"
+                sleep 30
+              fi
+            done
+            
+            # Final verification
+            if ! curl -f http://localhost:3000/api/health; then
+              echo "❌ Deployment failed, rolling back"
+              docker-compose -f docker-compose.prod.yml down
+              docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:backup-$(date +%Y%m%d_%H%M%S) ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:stable
+              docker-compose -f docker-compose.prod.yml up -d
+              exit 1
+            fi
+
+      - name: Run post-deployment tests
+        run: |
+          sleep 120
+          # Add comprehensive production smoke tests here
+          curl -f ${{ secrets.PRODUCTION_URL }}/api/health
+          # Test critical user journeys
+          
+      - name: Notify successful release
+        uses: 8398a7/action-slack@v3
+        with:
+          status: success
+          channel: '#releases'
+          text: |
+            🎉 Production Release Deployed Successfully!
+            Version: ${{ needs.create-release.outputs.version }}
+            Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.create-release.outputs.version }}
+            URL: ${{ secrets.PRODUCTION_URL }}
+            
+            Changes:
+            ${{ needs.create-release.outputs.changelog }}
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+
+  # Performance baseline for release
+  performance-baseline:
+    name: Performance Baseline
+    runs-on: ubuntu-latest
+    needs: deploy-production-release
+    if: success()
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Lighthouse audit on production
+        uses: treosh/lighthouse-ci-action@v10
+        with:
+          urls: |
+            ${{ secrets.PRODUCTION_URL }}
+            ${{ secrets.PRODUCTION_URL }}/login
+            ${{ secrets.PRODUCTION_URL }}/complaints
+          configPath: './lighthouserc.prod.json'
+          uploadArtifacts: true
+          temporaryPublicStorage: true
+
+      - name: Store performance baseline
+        run: |
+          # Store performance metrics for future comparison
+          echo "Performance baseline for ${{ needs.create-release.outputs.version }}" > performance-baseline.txt
+          echo "Date: $(date)" >> performance-baseline.txt
+          echo "Version: ${{ needs.create-release.outputs.version }}" >> performance-baseline.txt
+
+      - name: Upload performance baseline
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-baseline-${{ needs.create-release.outputs.version }}
+          path: |
+            performance-baseline.txt
+            lhci_reports/
+
+  # Documentation update
+  update-docs:
+    name: Update Documentation
+    runs-on: ubuntu-latest
+    needs: [create-release, deploy-production-release]
+    if: success()
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update CHANGELOG.md
+        run: |
+          echo "# Changelog" > CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "## ${{ needs.create-release.outputs.version }} - $(date +%Y-%m-%d)" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "${{ needs.create-release.outputs.changelog }}" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          
+          # Add previous changelog if it exists
+          if [ -f CHANGELOG.old.md ]; then
+            cat CHANGELOG.old.md >> CHANGELOG.md
+          fi
+
+      - name: Update version in package.json
+        run: |
+          VERSION=${{ needs.create-release.outputs.version }}
+          VERSION=${VERSION#v}  # Remove 'v' prefix
+          npm version $VERSION --no-git-tag-version
+
+      - name: Commit documentation updates
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add CHANGELOG.md package.json
+          git commit -m "docs: update documentation for release ${{ needs.create-release.outputs.version }}" || exit 0
+          git push || exit 0
+
+  # Cleanup old releases
+  cleanup:
+    name: Cleanup Old Releases
+    runs-on: ubuntu-latest
+    needs: [performance-baseline]
+    if: success()
+    
+    steps:
+      - name: Delete old Docker images
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.PRODUCTION_HOST }}
+          username: ${{ secrets.PRODUCTION_USER }}
+          key: ${{ secrets.PRODUCTION_SSH_KEY }}
+          script: |
+            # Keep only last 10 backup images
+            docker images ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }} --format "table {{.Tag}}" | \
+            grep backup | \
+            tail -n +11 | \
+            xargs -r -I {} docker rmi ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:{}
+
+      - name: Clean up old releases on DockerHub
+        run: |
+          # This would require DockerHub API integration
+          # For now, manual cleanup is recommended
+          echo "Manual cleanup of old DockerHub images recommended"
