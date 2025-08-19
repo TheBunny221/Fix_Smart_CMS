@@ -78,8 +78,8 @@ const WardOfficerDashboard: React.FC = () => {
     // Return default values if we don't have valid data
     if (!Array.isArray(complaints) || !user?.id) {
       return {
-        totalAssigned: 0,
-        pending: 0,
+        assignedToUsers: 0,
+        unassigned: 0,
         inProgress: 0,
         overdue: 0,
         resolved: 0,
@@ -91,10 +91,16 @@ const WardOfficerDashboard: React.FC = () => {
     // Backend already filters complaints for ward officers, so use all returned complaints
     const wardComplaints = complaints;
 
-    const totalAssigned = wardComplaints.length;
-    const pending = wardComplaints.filter(
-      (c) => c.status === "REGISTERED",
+    // Count complaints assigned to ward officers/maintenance team (not just registered)
+    const assignedToUsers = wardComplaints.filter(
+      (c) => c.assignedToId && (c.status === "ASSIGNED" || c.status === "IN_PROGRESS"),
     ).length;
+
+    // Count unassigned complaints in this ward
+    const unassigned = wardComplaints.filter(
+      (c) => !c.assignedToId && c.status === "REGISTERED",
+    ).length;
+
     const inProgress = wardComplaints.filter(
       (c) => c.status === "IN_PROGRESS",
     ).length;
@@ -107,8 +113,8 @@ const WardOfficerDashboard: React.FC = () => {
     }).length;
 
     return {
-      totalAssigned,
-      pending,
+      assignedToUsers,
+      unassigned,
       inProgress,
       overdue,
       resolved,
@@ -181,16 +187,16 @@ const WardOfficerDashboard: React.FC = () => {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">
-              Total Assigned
+              Assigned to Users
             </CardTitle>
-            <FileText className="h-4 w-4 text-muted-foreground" />
+            <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {dashboardStats.totalAssigned}
+              {dashboardStats.assignedToUsers}
             </div>
             <p className="text-xs text-muted-foreground">
-              Complaints in your ward
+              Assigned to ward officers/maintenance
             </p>
           </CardContent>
         </Card>
@@ -198,13 +204,13 @@ const WardOfficerDashboard: React.FC = () => {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">
-              Pending Action
+              Unassigned
             </CardTitle>
             <Clock className="h-4 w-4 text-yellow-600" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-yellow-600">
-              {dashboardStats.pending}
+              {dashboardStats.unassigned}
             </div>
             <p className="text-xs text-muted-foreground">Awaiting assignment</p>
           </CardContent>
