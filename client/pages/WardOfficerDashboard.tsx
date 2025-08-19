@@ -63,19 +63,6 @@ const WardOfficerDashboard: React.FC = () => {
     ? complaintsResponse.data
     : [];
 
-  // Debug logging to check data
-  console.log('WardOfficerDashboard Debug:', {
-    user: {
-      id: user?.id,
-      role: user?.role,
-      wardId: user?.wardId,
-      wardName: user?.ward?.name
-    },
-    complaintsResponse,
-    complaintsCount: complaints.length,
-    error,
-    isLoading
-  });
 
   // Fetch complaint statistics
   const { data: statsResponse, isLoading: statsLoading } =
