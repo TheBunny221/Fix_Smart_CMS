@@ -82,7 +82,12 @@ const WardTasks: React.FC = () => {
       skip: !user?.wardId,
     });
 
-  const complaints = Array.isArray(complaintsResponse?.data) ? complaintsResponse.data : [];
+  // Fix data access pattern to match ComplaintsList
+  const complaints = Array.isArray(complaintsResponse?.data?.complaints)
+    ? complaintsResponse.data.complaints
+    : Array.isArray(complaintsResponse?.data)
+    ? complaintsResponse.data
+    : [];
   const teamMembers = teamResponse?.data?.teamMembers || [];
 
   // Debug logging to check data
