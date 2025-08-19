@@ -281,11 +281,59 @@ const WardTasks: React.FC = () => {
     </div>
   );
 
+  // Early returns for loading and missing data
+  if (!user?.id) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <span className="text-lg">Loading user data...</span>
+      </div>
+    );
+  }
+
+  if (!user?.wardId) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <AlertTriangle className="h-12 w-12 mx-auto text-yellow-500 mb-4" />
+          <h2 className="text-xl font-semibold mb-2">No Ward Assigned</h2>
+          <p className="text-gray-600">
+            You are not assigned to any ward. Please contact an administrator.
+          </p>
+          <div className="mt-4 text-sm text-gray-500">
+            User ID: {user.id}<br/>
+            Role: {user.role}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (complaintsLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <RefreshCw className="h-8 w-8 animate-spin text-blue-600" />
         <span className="ml-2 text-lg">Loading ward tasks...</span>
+      </div>
+    );
+  }
+
+  if (complaintsError) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <AlertTriangle className="h-12 w-12 mx-auto text-red-500 mb-4" />
+          <h2 className="text-xl font-semibold mb-2">Error Loading Tasks</h2>
+          <p className="text-gray-600 mb-4">
+            Failed to load ward tasks. Please try again.
+          </p>
+          <Button onClick={() => refetchComplaints()}>
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Retry
+          </Button>
+          <div className="mt-4 text-sm text-gray-500">
+            Error: {JSON.stringify(complaintsError)}
+          </div>
+        </div>
       </div>
     );
   }
