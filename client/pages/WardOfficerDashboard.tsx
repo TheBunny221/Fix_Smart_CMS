@@ -42,13 +42,13 @@ const WardOfficerDashboard: React.FC = () => {
   const { translations } = useAppSelector((state) => state.language);
 
   // Fetch complaints for the ward officer's ward
+  // Note: For WARD_OFFICER role, backend automatically filters by user's wardId
   const {
     data: complaintsResponse,
     isLoading,
     error,
     refetch: refetchComplaints,
   } = useGetComplaintsQuery({
-    wardId: user?.wardId,  // Fix: changed from 'ward' to 'wardId'
     page: 1,
     limit: 100,
   });
