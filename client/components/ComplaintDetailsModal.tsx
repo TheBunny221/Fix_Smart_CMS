@@ -105,7 +105,7 @@ Priority: ${complaint.priority}
 Description: ${complaint.description}
 Location: ${complaint.area}
 Address: ${complaint.address || "N/A"}
-Ward: ${complaint.ward || "N/A"}
+Ward: ${complaint.ward?.name || "N/A"}
 Submitted On: ${new Date(complaint.submittedOn).toLocaleString()}
 ${complaint.assignedOn ? `Assigned On: ${new Date(complaint.assignedOn).toLocaleString()}` : ""}
 ${complaint.resolvedOn ? `Resolved On: ${new Date(complaint.resolvedOn).toLocaleString()}` : ""}
