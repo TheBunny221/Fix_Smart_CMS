@@ -423,12 +423,6 @@ const WardOfficerDashboard: React.FC = () => {
                     Generate Reports
                   </Button>
                 </Link>
-                <Link to="/messages" className="block">
-                  <Button variant="outline" className="w-full justify-start">
-                    <MessageSquare className="h-4 w-4 mr-2" />
-                    Team Communication
-                  </Button>
-                </Link>
               </CardContent>
             </Card>
           </div>
