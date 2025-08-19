@@ -105,9 +105,9 @@ ${complaint.resolvedOn ? `Resolved On: ${new Date(complaint.resolvedOn).toLocale
 
 Contact Information
 ==================
-Name: ${user.name}
-Email: ${user.email}
-Phone: ${user.phone || "N/A"}
+Name: ${user?.fullName || user?.name || "N/A"}
+Email: ${user?.email || "N/A"}
+Phone: ${user?.phone || "N/A"}
     `;
 
     const blob = new Blob([content], { type: "text/plain" });
@@ -252,14 +252,14 @@ Phone: ${user.phone || "N/A"}
                     <label className="text-sm font-medium text-gray-500">
                       Name
                     </label>
-                    <p className="text-gray-900">{user.name}</p>
+                    <p className="text-gray-900">{user?.fullName || user?.name || "N/A"}</p>
                   </div>
                   <div>
                     <label className="text-sm font-medium text-gray-500 flex items-center">
                       <Mail className="h-4 w-4 mr-1" />
                       Email
                     </label>
-                    <p className="text-gray-900">{user.email}</p>
+                    <p className="text-gray-900">{user?.email || "N/A"}</p>
                   </div>
                   {user.phone && (
                     <div>
@@ -267,7 +267,7 @@ Phone: ${user.phone || "N/A"}
                         <Phone className="h-4 w-4 mr-1" />
                         Phone
                       </label>
-                      <p className="text-gray-900">{user.phone}</p>
+                      <p className="text-gray-900">{user?.phone}</p>
                     </div>
                   )}
                   {complaint.assignedTo && (
@@ -276,7 +276,7 @@ Phone: ${user.phone || "N/A"}
                         Assigned To
                       </label>
                       <p className="text-gray-900">
-                        {complaint.assignedTo.name}
+                        {complaint.assignedTo?.fullName || complaint.assignedTo?.name || "N/A"}
                       </p>
                       <p className="text-sm text-gray-600">
                         {complaint.assignedTo.role}
