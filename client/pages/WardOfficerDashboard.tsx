@@ -57,7 +57,12 @@ const WardOfficerDashboard: React.FC = () => {
     skip: !user?.id || !user?.wardId
   });
 
-  const complaints = Array.isArray(complaintsResponse?.data) ? complaintsResponse.data : [];
+  // Fix data access pattern to match ComplaintsList
+  const complaints = Array.isArray(complaintsResponse?.data?.complaints)
+    ? complaintsResponse.data.complaints
+    : Array.isArray(complaintsResponse?.data)
+    ? complaintsResponse.data
+    : [];
 
   // Debug logging to check data
   console.log('WardOfficerDashboard Debug:', {
