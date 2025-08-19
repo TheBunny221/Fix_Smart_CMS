@@ -856,8 +856,8 @@ const CitizenDashboard: React.FC = () => {
               </ul>
             </div>
             <Button variant="outline" className="w-full">
-              <MessageSquare className="mr-2 h-4 w-4" />
-              Contact Support
+              <FileText className="mr-2 h-4 w-4" />
+              Help & Guidelines
             </Button>
           </CardContent>
         </Card>
