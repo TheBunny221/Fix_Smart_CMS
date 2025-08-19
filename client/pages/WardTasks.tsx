@@ -90,19 +90,6 @@ const WardTasks: React.FC = () => {
     : [];
   const teamMembers = teamResponse?.data?.teamMembers || [];
 
-  // Debug logging to check data
-  console.log('WardTasks Debug:', {
-    user: {
-      id: user?.id,
-      role: user?.role,
-      wardId: user?.wardId,
-      wardName: user?.ward?.name
-    },
-    complaintsResponse,
-    complaintsCount: complaints.length,
-    complaintsError,
-    complaintsLoading
-  });
 
   // Calculate dashboard stats
   const dashboardStats = useMemo(() => {
