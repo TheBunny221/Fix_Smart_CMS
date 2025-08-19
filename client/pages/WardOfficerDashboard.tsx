@@ -51,6 +51,9 @@ const WardOfficerDashboard: React.FC = () => {
   } = useGetComplaintsQuery({
     page: 1,
     limit: 100,
+  }, {
+    // Skip query if user data is not loaded
+    skip: !user?.id || !user?.wardId
   });
 
   const complaints = Array.isArray(complaintsResponse?.data) ? complaintsResponse.data : [];
