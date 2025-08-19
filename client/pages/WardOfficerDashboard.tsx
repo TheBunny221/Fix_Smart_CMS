@@ -53,7 +53,7 @@ const WardOfficerDashboard: React.FC = () => {
     limit: 100,
   });
 
-  const complaints = complaintsResponse?.data || [];
+  const complaints = Array.isArray(complaintsResponse?.data) ? complaintsResponse.data : [];
 
   // Fetch complaint statistics
   const { data: statsResponse, isLoading: statsLoading } =
@@ -77,9 +77,12 @@ const WardOfficerDashboard: React.FC = () => {
   // Data fetching is handled by RTK Query hooks automatically
 
   useEffect(() => {
+    // Only update if we have valid data
+    if (!Array.isArray(complaints) || !user?.id) return;
+
     // Filter complaints for this ward officer
     const wardComplaints = complaints.filter(
-      (c) => c.assignedToId === user?.id || c.wardId === user?.wardId,
+      (c) => c.assignedToId === user.id || c.wardId === user.wardId,
     );
 
     const totalAssigned = wardComplaints.length;
@@ -106,7 +109,7 @@ const WardOfficerDashboard: React.FC = () => {
       slaCompliance: 85, // Mock calculation
       avgResolutionTime: 2.8, // Mock calculation
     });
-  }, [complaints, user]);
+  }, [complaints, user?.id, user?.wardId]);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -140,9 +143,9 @@ const WardOfficerDashboard: React.FC = () => {
     }
   };
 
-  const wardComplaints = complaints.filter(
+  const wardComplaints = Array.isArray(complaints) ? complaints.filter(
     (c) => c.assignedToId === user?.id || c.wardId === user?.wardId,
-  );
+  ) : [];
 
   const urgentComplaints = wardComplaints
     .filter((c) => c.priority === "CRITICAL" || c.priority === "HIGH")
