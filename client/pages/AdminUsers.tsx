@@ -699,7 +699,7 @@ const AdminUsers: React.FC = () => {
         </CardContent>
       </Card>
 
-      {/* Quick Actions */}
+      {/* Quick Actions
       <Card>
         <CardHeader>
           <CardTitle>User Management Actions</CardTitle>
@@ -720,7 +720,7 @@ const AdminUsers: React.FC = () => {
             </Button>
           </div>
         </CardContent>
-      </Card>
+      </Card> */}
 
       {/* Add User Dialog */}
       <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
