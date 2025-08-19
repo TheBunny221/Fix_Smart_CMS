@@ -539,6 +539,7 @@ const WardTasks: React.FC = () => {
             setSelectedComplaint(null);
           }}
           complaint={selectedComplaint}
+          user={selectedComplaint?.user || user}
         />
       )}
     </div>
