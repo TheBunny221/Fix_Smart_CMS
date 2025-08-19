@@ -137,12 +137,6 @@ const Navigation: React.FC = () => {
       roles: ["MAINTENANCE_TEAM"],
     },
     {
-      label: translations?.messages?.complaintRegistered || "Communication",
-      path: "/messages",
-      icon: <MessageSquare className="h-4 w-4" />,
-      roles: ["WARD_OFFICER", "MAINTENANCE_TEAM"],
-    },
-    {
       label: translations.nav.reports,
       path: "/reports",
       icon: <TrendingUp className="h-4 w-4" />,
