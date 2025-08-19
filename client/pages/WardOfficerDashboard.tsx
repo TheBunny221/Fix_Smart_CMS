@@ -329,7 +329,7 @@ const WardOfficerDashboard: React.FC = () => {
                 <Link to="/complaints?status=REGISTERED" className="block">
                   <Button className="w-full justify-start">
                     <Users className="h-4 w-4 mr-2" />
-                    Assign Complaints ({dashboardStats.pending})
+                    Assign Complaints ({dashboardStats.unassigned})
                   </Button>
                 </Link>
                 <Link to="/complaints?priority=CRITICAL,HIGH" className="block">
