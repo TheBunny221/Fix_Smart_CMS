@@ -61,7 +61,7 @@ const GuestTrackComplaint: React.FC = () => {
     try {
       // Request OTP for the complaint
       const result = await requestOtp({
-        complaintId: complaintId.trim(),
+        id: complaintId.trim(),
       }).unwrap();
 
       if (result.success) {
