@@ -34,7 +34,6 @@ import {
   TrendingUp,
   FileText,
   Settings,
-  MessageSquare,
   RefreshCw,
 } from "lucide-react";
 
