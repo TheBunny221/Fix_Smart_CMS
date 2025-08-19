@@ -12,9 +12,13 @@ const generateOTP = () => {
 // Request OTP for complaint tracking
 export const requestComplaintOtp = async (req, res) => {
   try {
+    console.log("Request body received:", req.body);
+    console.log("Content-Type:", req.headers["content-type"]);
     const { complaintId } = req.body;
+    console.log("Extracted complaintId:", complaintId);
 
     if (!complaintId) {
+      console.log("Complaint ID is missing or falsy");
       return res.status(400).json({
         success: false,
         message: "Complaint ID is required",
