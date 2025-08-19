@@ -64,21 +64,20 @@ const WardOfficerDashboard: React.FC = () => {
   const [updateComplaint] = useUpdateComplaintMutation();
   const [assignComplaintMutation] = useAssignComplaintMutation();
 
-  const [dashboardStats, setDashboardStats] = useState({
-    totalAssigned: 0,
-    pending: 0,
-    inProgress: 0,
-    overdue: 0,
-    resolved: 0,
-    slaCompliance: 85,
-    avgResolutionTime: 2.8,
-  });
-
-  // Data fetching is handled by RTK Query hooks automatically
-
-  useEffect(() => {
-    // Only update if we have valid data
-    if (!Array.isArray(complaints) || !user?.id) return;
+  // Calculate dashboard stats using useMemo to prevent infinite loops
+  const dashboardStats = useMemo(() => {
+    // Return default values if we don't have valid data
+    if (!Array.isArray(complaints) || !user?.id) {
+      return {
+        totalAssigned: 0,
+        pending: 0,
+        inProgress: 0,
+        overdue: 0,
+        resolved: 0,
+        slaCompliance: 85,
+        avgResolutionTime: 2.8,
+      };
+    }
 
     // Filter complaints for this ward officer
     const wardComplaints = complaints.filter(
@@ -100,7 +99,7 @@ const WardOfficerDashboard: React.FC = () => {
       return new Date(c.deadline) < new Date() && c.status !== "RESOLVED";
     }).length;
 
-    setDashboardStats({
+    return {
       totalAssigned,
       pending,
       inProgress,
@@ -108,7 +107,7 @@ const WardOfficerDashboard: React.FC = () => {
       resolved,
       slaCompliance: 85, // Mock calculation
       avgResolutionTime: 2.8, // Mock calculation
-    });
+    };
   }, [complaints, user?.id, user?.wardId]);
 
   const getStatusColor = (status: string) => {
