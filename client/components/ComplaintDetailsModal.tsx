@@ -240,7 +240,7 @@ Phone: ${userData.phone || "N/A"}
                       <label className="text-sm font-medium text-gray-500">
                         Ward
                       </label>
-                      <p className="text-gray-900">{complaint.ward}</p>
+                      <p className="text-gray-900">{complaint.ward?.name || "N/A"}</p>
                     </div>
                   )}
                 </div>
