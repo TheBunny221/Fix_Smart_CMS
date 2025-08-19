@@ -33,7 +33,7 @@ import OtpVerificationModal from "../components/OtpVerificationModal";
 import ComplaintDetailsModal from "../components/ComplaintDetailsModal";
 
 const GuestTrackComplaint: React.FC = () => {
-  const dispatch = useAppDispatch();hskdk
+  const dispatch = useAppDispatch();
   const [complaintId, setComplaintId] = useState("");
   const [trackingResult, setTrackingResult] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(false);
