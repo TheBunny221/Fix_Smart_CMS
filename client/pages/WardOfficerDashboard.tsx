@@ -142,15 +142,21 @@ const WardOfficerDashboard: React.FC = () => {
     }
   };
 
-  const wardComplaints = Array.isArray(complaints) ? complaints.filter(
-    (c) => c.assignedToId === user?.id || c.wardId === user?.wardId,
-  ) : [];
+  const wardComplaints = useMemo(() => {
+    return Array.isArray(complaints) ? complaints.filter(
+      (c) => c.assignedToId === user?.id || c.wardId === user?.wardId,
+    ) : [];
+  }, [complaints, user?.id, user?.wardId]);
 
-  const urgentComplaints = wardComplaints
-    .filter((c) => c.priority === "CRITICAL" || c.priority === "HIGH")
-    .slice(0, 5);
+  const urgentComplaints = useMemo(() => {
+    return wardComplaints
+      .filter((c) => c.priority === "CRITICAL" || c.priority === "HIGH")
+      .slice(0, 5);
+  }, [wardComplaints]);
 
-  const recentComplaints = wardComplaints.slice(0, 5);
+  const recentComplaints = useMemo(() => {
+    return wardComplaints.slice(0, 5);
+  }, [wardComplaints]);
 
   return (
     <div className="space-y-6">
