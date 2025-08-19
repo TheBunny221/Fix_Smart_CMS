@@ -48,7 +48,7 @@ const WardOfficerDashboard: React.FC = () => {
     error,
     refetch: refetchComplaints,
   } = useGetComplaintsQuery({
-    ward: user?.wardId,
+    wardId: user?.wardId,  // Fix: changed from 'ward' to 'wardId'
     page: 1,
     limit: 100,
   });
