@@ -23,7 +23,7 @@ interface ComplaintDetailsModalProps {
   isOpen: boolean;
   onClose: () => void;
   complaint: any;
-  user: any;
+  user?: any; // Made optional since we provide fallback
 }
 
 const ComplaintDetailsModal: React.FC<ComplaintDetailsModalProps> = ({
