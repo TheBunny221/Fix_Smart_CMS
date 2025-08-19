@@ -35,6 +35,7 @@ import {
   FileText,
   Settings,
   MessageSquare,
+  RefreshCw,
 } from "lucide-react";
 
 const WardOfficerDashboard: React.FC = () => {
