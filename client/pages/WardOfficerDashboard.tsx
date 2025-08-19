@@ -143,10 +143,10 @@ const WardOfficerDashboard: React.FC = () => {
   };
 
   const wardComplaints = useMemo(() => {
-    return Array.isArray(complaints) ? complaints.filter(
-      (c) => c.assignedToId === user?.id || c.wardId === user?.wardId,
-    ) : [];
-  }, [complaints, user?.id, user?.wardId]);
+    // Backend already filters complaints for ward officers by their wardId
+    // So we just need to ensure we have a valid array
+    return Array.isArray(complaints) ? complaints : [];
+  }, [complaints]);
 
   const urgentComplaints = useMemo(() => {
     return wardComplaints
