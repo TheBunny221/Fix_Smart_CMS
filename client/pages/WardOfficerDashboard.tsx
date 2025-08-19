@@ -79,10 +79,8 @@ const WardOfficerDashboard: React.FC = () => {
       };
     }
 
-    // Filter complaints for this ward officer
-    const wardComplaints = complaints.filter(
-      (c) => c.assignedToId === user.id || c.wardId === user.wardId,
-    );
+    // Backend already filters complaints for ward officers, so use all returned complaints
+    const wardComplaints = complaints;
 
     const totalAssigned = wardComplaints.length;
     const pending = wardComplaints.filter(
