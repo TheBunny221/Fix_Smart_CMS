@@ -58,6 +58,7 @@ const WardTasks: React.FC = () => {
   const [priorityFilter, setPriorityFilter] = useState<string>("all");
 
   // Fetch complaints for the ward officer's ward (backend auto-filters)
+  // Note: Backend should automatically filter by wardId for WARD_OFFICER role
   const {
     data: complaintsResponse,
     isLoading: complaintsLoading,
@@ -66,6 +67,9 @@ const WardTasks: React.FC = () => {
   } = useGetComplaintsQuery({
     page: 1,
     limit: 100,
+  }, {
+    // Skip query if user data is not loaded
+    skip: !user?.id || !user?.wardId
   });
 
   // Fetch complaint statistics
