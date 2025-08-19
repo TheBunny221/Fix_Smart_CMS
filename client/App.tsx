@@ -59,8 +59,7 @@ const UnifiedReports = lazy(() => import("./pages/UnifiedReports"));
 const AdminConfig = lazy(() => import("./pages/AdminConfig"));
 const AdminLanguages = lazy(() => import("./pages/AdminLanguages"));
 
-// Communication
-const Messages = lazy(() => import("./pages/Messages"));
+// Communication - Removed Messages component
 
 // Settings
 const Settings = lazy(() => import("./pages/Settings"));
