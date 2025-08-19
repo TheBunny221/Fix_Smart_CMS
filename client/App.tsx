@@ -261,22 +261,7 @@ const App: React.FC = () => {
                         }
                       />
 
-                      {/* Communication routes */}
-                      <Route
-                        path="/messages"
-                        element={
-                          <UnifiedLayout>
-                            <RoleBasedRoute
-                              allowedRoles={[
-                                "WARD_OFFICER",
-                                "MAINTENANCE_TEAM",
-                              ]}
-                            >
-                              <Messages />
-                            </RoleBasedRoute>
-                          </UnifiedLayout>
-                        }
-                      />
+                      {/* Communication routes - Messages removed */}
 
                       {/* Unified Reports route */}
                       <Route
