@@ -34,6 +34,13 @@ const ComplaintDetailsModal: React.FC<ComplaintDetailsModalProps> = ({
 }) => {
   if (!complaint) return null;
 
+  // Provide fallback for user data if not provided
+  const userData = user || {
+    fullName: "Unknown User",
+    email: "N/A",
+    phone: "N/A"
+  };
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case "REGISTERED":
