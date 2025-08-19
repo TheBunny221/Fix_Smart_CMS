@@ -55,6 +55,15 @@ const WardOfficerDashboard: React.FC = () => {
 
   const complaints = Array.isArray(complaintsResponse?.data) ? complaintsResponse.data : [];
 
+  // Debug logging
+  console.log('WardOfficerDashboard Debug:', {
+    user: { id: user?.id, role: user?.role, wardId: user?.wardId },
+    complaintsResponse,
+    complaints: complaints.length,
+    isLoading,
+    error
+  });
+
   // Fetch complaint statistics
   const { data: statsResponse, isLoading: statsLoading } =
     useGetComplaintStatisticsQuery({
