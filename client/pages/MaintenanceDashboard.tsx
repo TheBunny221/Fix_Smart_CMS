@@ -344,10 +344,6 @@ const MaintenanceDashboard: React.FC = () => {
                     Submit Report
                   </Button>
                   <Button variant="outline" className="w-full justify-start">
-                    <MessageSquare className="h-4 w-4 mr-2" />
-                    Contact Supervisor
-                  </Button>
-                  <Button variant="outline" className="w-full justify-start">
                     <Navigation className="h-4 w-4 mr-2" />
                     View Route Map
                   </Button>
