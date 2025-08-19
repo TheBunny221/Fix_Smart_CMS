@@ -47,12 +47,14 @@ import {
 
 const WardTasks: React.FC = () => {
   const { user } = useAppSelector((state) => state.auth);
-  
+
   // State for modals and filters
   const [selectedComplaint, setSelectedComplaint] = useState<any>(null);
   const [updateModalOpen, setUpdateModalOpen] = useState(false);
   const [detailsModalOpen, setDetailsModalOpen] = useState(false);
-  const [updateMode, setUpdateMode] = useState<"status" | "assign" | "both">("both");
+  const [updateMode, setUpdateMode] = useState<"status" | "assign" | "both">(
+    "both",
+  );
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [priorityFilter, setPriorityFilter] = useState<string>("all");
@@ -64,13 +66,16 @@ const WardTasks: React.FC = () => {
     isLoading: complaintsLoading,
     error: complaintsError,
     refetch: refetchComplaints,
-  } = useGetComplaintsQuery({
-    page: 1,
-    limit: 100,
-  }, {
-    // Skip query if user data is not loaded
-    skip: !user?.id || !user?.wardId
-  });
+  } = useGetComplaintsQuery(
+    {
+      page: 1,
+      limit: 100,
+    },
+    {
+      // Skip query if user data is not loaded
+      skip: !user?.id || !user?.wardId,
+    },
+  );
 
   // Fetch complaint statistics
   const { data: statsResponse, isLoading: statsLoading } =
@@ -86,10 +91,9 @@ const WardTasks: React.FC = () => {
   const complaints = Array.isArray(complaintsResponse?.data?.complaints)
     ? complaintsResponse.data.complaints
     : Array.isArray(complaintsResponse?.data)
-    ? complaintsResponse.data
-    : [];
+      ? complaintsResponse.data
+      : [];
   const teamMembers = teamResponse?.data?.teamMembers || [];
-
 
   // Calculate dashboard stats
   const dashboardStats = useMemo(() => {
@@ -106,8 +110,12 @@ const WardTasks: React.FC = () => {
 
     const totalTasks = complaints.length;
     const pending = complaints.filter((c) => c.status === "REGISTERED").length;
-    const inProgress = complaints.filter((c) => c.status === "IN_PROGRESS").length;
-    const completed = complaints.filter((c) => c.status === "RESOLVED" || c.status === "CLOSED").length;
+    const inProgress = complaints.filter(
+      (c) => c.status === "IN_PROGRESS",
+    ).length;
+    const completed = complaints.filter(
+      (c) => c.status === "RESOLVED" || c.status === "CLOSED",
+    ).length;
     const assigned = complaints.filter((c) => c.assignedToId).length;
     const unassigned = complaints.filter((c) => !c.assignedToId).length;
 
@@ -124,13 +132,18 @@ const WardTasks: React.FC = () => {
   // Filter complaints based on search and filters
   const filteredComplaints = useMemo(() => {
     return complaints.filter((complaint) => {
-      const matchesSearch = !searchTerm || 
-        complaint.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      const matchesSearch =
+        !searchTerm ||
+        complaint.description
+          ?.toLowerCase()
+          .includes(searchTerm.toLowerCase()) ||
         complaint.area?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         complaint.id?.toLowerCase().includes(searchTerm.toLowerCase());
 
-      const matchesStatus = statusFilter === "all" || complaint.status === statusFilter;
-      const matchesPriority = priorityFilter === "all" || complaint.priority === priorityFilter;
+      const matchesStatus =
+        statusFilter === "all" || complaint.status === statusFilter;
+      const matchesPriority =
+        priorityFilter === "all" || complaint.priority === priorityFilter;
 
       return matchesSearch && matchesStatus && matchesPriority;
     });
@@ -143,7 +156,9 @@ const WardTasks: React.FC = () => {
       pending: filteredComplaints.filter((c) => c.status === "REGISTERED"),
       assigned: filteredComplaints.filter((c) => c.status === "ASSIGNED"),
       inProgress: filteredComplaints.filter((c) => c.status === "IN_PROGRESS"),
-      completed: filteredComplaints.filter((c) => c.status === "RESOLVED" || c.status === "CLOSED"),
+      completed: filteredComplaints.filter(
+        (c) => c.status === "RESOLVED" || c.status === "CLOSED",
+      ),
     };
   }, [filteredComplaints]);
 
@@ -178,7 +193,10 @@ const WardTasks: React.FC = () => {
     }
   };
 
-  const handleUpdateStatus = (complaint: any, mode: "status" | "assign" | "both" = "both") => {
+  const handleUpdateStatus = (
+    complaint: any,
+    mode: "status" | "assign" | "both" = "both",
+  ) => {
     setSelectedComplaint(complaint);
     setUpdateMode(mode);
     setUpdateModalOpen(true);
@@ -199,7 +217,9 @@ const WardTasks: React.FC = () => {
 
   const getAssigneeInfo = (complaint: any) => {
     if (complaint.assignedTo) {
-      return complaint.assignedTo.fullName || complaint.assignedTo.name || "Assigned";
+      return (
+        complaint.assignedTo.fullName || complaint.assignedTo.name || "Assigned"
+      );
     }
     return "Unassigned";
   };
@@ -212,7 +232,8 @@ const WardTasks: React.FC = () => {
       <div className="flex justify-between items-start mb-3">
         <div className="flex-1">
           <h3 className="font-medium text-base mb-1">
-            #{complaint.complaintId || complaint.id.slice(-6)} - {complaint.type?.replace("_", " ")}
+            #{complaint.complaintId || complaint.id.slice(-6)} -{" "}
+            {complaint.type?.replace("_", " ")}
           </h3>
           <p className="text-sm text-gray-600 line-clamp-2 mb-2">
             {complaint.description}
@@ -241,7 +262,10 @@ const WardTasks: React.FC = () => {
         </div>
         <div className="flex items-center">
           <Calendar className="h-4 w-4 mr-2 flex-shrink-0" />
-          <span>Submitted: {formatDate(complaint.submittedOn || complaint.createdAt)}</span>
+          <span>
+            Submitted:{" "}
+            {formatDate(complaint.submittedOn || complaint.createdAt)}
+          </span>
         </div>
       </div>
 
@@ -292,7 +316,8 @@ const WardTasks: React.FC = () => {
             You are not assigned to any ward. Please contact an administrator.
           </p>
           <div className="mt-4 text-sm text-gray-500">
-            User ID: {user.id}<br/>
+            User ID: {user.id}
+            <br />
             Role: {user.role}
           </div>
         </div>
@@ -353,7 +378,9 @@ const WardTasks: React.FC = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-600">Total Tasks</p>
-                <p className="text-2xl font-bold">{dashboardStats.totalTasks}</p>
+                <p className="text-2xl font-bold">
+                  {dashboardStats.totalTasks}
+                </p>
               </div>
               <FileText className="h-8 w-8 text-blue-600" />
             </div>
@@ -364,7 +391,9 @@ const WardTasks: React.FC = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-600">Pending</p>
-                <p className="text-2xl font-bold text-yellow-600">{dashboardStats.pending}</p>
+                <p className="text-2xl font-bold text-yellow-600">
+                  {dashboardStats.pending}
+                </p>
               </div>
               <Clock className="h-8 w-8 text-yellow-600" />
             </div>
@@ -375,7 +404,9 @@ const WardTasks: React.FC = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-600">In Progress</p>
-                <p className="text-2xl font-bold text-blue-600">{dashboardStats.inProgress}</p>
+                <p className="text-2xl font-bold text-blue-600">
+                  {dashboardStats.inProgress}
+                </p>
               </div>
               <AlertTriangle className="h-8 w-8 text-blue-600" />
             </div>
@@ -386,7 +417,9 @@ const WardTasks: React.FC = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-600">Completed</p>
-                <p className="text-2xl font-bold text-green-600">{dashboardStats.completed}</p>
+                <p className="text-2xl font-bold text-green-600">
+                  {dashboardStats.completed}
+                </p>
               </div>
               <CheckSquare className="h-8 w-8 text-green-600" />
             </div>
@@ -397,7 +430,9 @@ const WardTasks: React.FC = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-600">Assigned</p>
-                <p className="text-2xl font-bold text-purple-600">{dashboardStats.assigned}</p>
+                <p className="text-2xl font-bold text-purple-600">
+                  {dashboardStats.assigned}
+                </p>
               </div>
               <User className="h-8 w-8 text-purple-600" />
             </div>
@@ -408,7 +443,9 @@ const WardTasks: React.FC = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-600">Unassigned</p>
-                <p className="text-2xl font-bold text-red-600">{dashboardStats.unassigned}</p>
+                <p className="text-2xl font-bold text-red-600">
+                  {dashboardStats.unassigned}
+                </p>
               </div>
               <UserPlus className="h-8 w-8 text-red-600" />
             </div>

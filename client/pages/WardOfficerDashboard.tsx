@@ -48,21 +48,23 @@ const WardOfficerDashboard: React.FC = () => {
     isLoading,
     error,
     refetch: refetchComplaints,
-  } = useGetComplaintsQuery({
-    page: 1,
-    limit: 100,
-  }, {
-    // Skip query if user data is not loaded
-    skip: !user?.id || !user?.wardId
-  });
+  } = useGetComplaintsQuery(
+    {
+      page: 1,
+      limit: 100,
+    },
+    {
+      // Skip query if user data is not loaded
+      skip: !user?.id || !user?.wardId,
+    },
+  );
 
   // Fix data access pattern to match ComplaintsList
   const complaints = Array.isArray(complaintsResponse?.data?.complaints)
     ? complaintsResponse.data.complaints
     : Array.isArray(complaintsResponse?.data)
-    ? complaintsResponse.data
-    : [];
-
+      ? complaintsResponse.data
+      : [];
 
   // Fetch complaint statistics
   const { data: statsResponse, isLoading: statsLoading } =
@@ -93,7 +95,9 @@ const WardOfficerDashboard: React.FC = () => {
 
     // Count complaints assigned to ward officers/maintenance team (not just registered)
     const assignedToUsers = wardComplaints.filter(
-      (c) => c.assignedToId && (c.status === "ASSIGNED" || c.status === "IN_PROGRESS"),
+      (c) =>
+        c.assignedToId &&
+        (c.status === "ASSIGNED" || c.status === "IN_PROGRESS"),
     ).length;
 
     // Count unassigned complaints in this ward
@@ -190,7 +194,8 @@ const WardOfficerDashboard: React.FC = () => {
             You are not assigned to any ward. Please contact an administrator.
           </p>
           <div className="mt-4 text-sm text-gray-500">
-            User ID: {user.id}<br/>
+            User ID: {user.id}
+            <br />
             Role: {user.role}
           </div>
         </div>
@@ -214,7 +219,9 @@ const WardOfficerDashboard: React.FC = () => {
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
           <AlertTriangle className="h-12 w-12 mx-auto text-red-500 mb-4" />
-          <h2 className="text-xl font-semibold mb-2">Error Loading Dashboard</h2>
+          <h2 className="text-xl font-semibold mb-2">
+            Error Loading Dashboard
+          </h2>
           <p className="text-gray-600 mb-4">
             Failed to load dashboard data. Please try again.
           </p>
@@ -236,8 +243,9 @@ const WardOfficerDashboard: React.FC = () => {
       <div className="bg-gradient-to-r from-blue-600 to-blue-800 rounded-lg p-6 text-white">
         <h1 className="text-2xl font-bold mb-2">Ward Officer Dashboard</h1>
         <p className="text-blue-100">
-          Manage complaints for {user?.ward?.name || user?.wardId || "your assigned ward"} and
-          monitor team performance.
+          Manage complaints for{" "}
+          {user?.ward?.name || user?.wardId || "your assigned ward"} and monitor
+          team performance.
         </p>
         <div className="mt-2 text-sm text-blue-200">
           Ward ID: {user?.wardId} | Total Complaints: {complaints.length}
@@ -265,9 +273,7 @@ const WardOfficerDashboard: React.FC = () => {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              Unassigned
-            </CardTitle>
+            <CardTitle className="text-sm font-medium">Unassigned</CardTitle>
             <Clock className="h-4 w-4 text-yellow-600" />
           </CardHeader>
           <CardContent>

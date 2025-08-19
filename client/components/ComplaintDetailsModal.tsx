@@ -38,7 +38,7 @@ const ComplaintDetailsModal: React.FC<ComplaintDetailsModalProps> = ({
   const userData = user || {
     fullName: "Unknown User",
     email: "N/A",
-    phone: "N/A"
+    phone: "N/A",
   };
 
   const getStatusColor = (status: string) => {
@@ -240,7 +240,9 @@ Phone: ${userData.phone || "N/A"}
                       <label className="text-sm font-medium text-gray-500">
                         Ward
                       </label>
-                      <p className="text-gray-900">{complaint.ward?.name || "N/A"}</p>
+                      <p className="text-gray-900">
+                        {complaint.ward?.name || "N/A"}
+                      </p>
                     </div>
                   )}
                 </div>
@@ -283,7 +285,9 @@ Phone: ${userData.phone || "N/A"}
                         Assigned To
                       </label>
                       <p className="text-gray-900">
-                        {complaint.assignedTo?.fullName || complaint.assignedTo?.name || "N/A"}
+                        {complaint.assignedTo?.fullName ||
+                          complaint.assignedTo?.name ||
+                          "N/A"}
                       </p>
                       <p className="text-sm text-gray-600">
                         {complaint.assignedTo.role}
