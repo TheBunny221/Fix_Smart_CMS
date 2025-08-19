@@ -179,15 +179,77 @@ const WardOfficerDashboard: React.FC = () => {
     return wardComplaints.slice(0, 5);
   }, [wardComplaints]);
 
+  // Early returns for validation
+  if (!user?.id) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <span className="text-lg">Loading user data...</span>
+      </div>
+    );
+  }
+
+  if (!user?.wardId) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <AlertTriangle className="h-12 w-12 mx-auto text-yellow-500 mb-4" />
+          <h2 className="text-xl font-semibold mb-2">No Ward Assigned</h2>
+          <p className="text-gray-600">
+            You are not assigned to any ward. Please contact an administrator.
+          </p>
+          <div className="mt-4 text-sm text-gray-500">
+            User ID: {user.id}<br/>
+            Role: {user.role}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <RefreshCw className="h-8 w-8 mx-auto animate-spin text-blue-600 mb-4" />
+          <span className="text-lg">Loading dashboard...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <AlertTriangle className="h-12 w-12 mx-auto text-red-500 mb-4" />
+          <h2 className="text-xl font-semibold mb-2">Error Loading Dashboard</h2>
+          <p className="text-gray-600 mb-4">
+            Failed to load dashboard data. Please try again.
+          </p>
+          <Button onClick={() => refetchComplaints()}>
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Retry
+          </Button>
+          <div className="mt-4 text-sm text-gray-500">
+            Error: {JSON.stringify(error)}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Welcome Section */}
       <div className="bg-gradient-to-r from-blue-600 to-blue-800 rounded-lg p-6 text-white">
         <h1 className="text-2xl font-bold mb-2">Ward Officer Dashboard</h1>
         <p className="text-blue-100">
-          Manage complaints for {user?.ward?.name || "your assigned ward"} and
+          Manage complaints for {user?.ward?.name || user?.wardId || "your assigned ward"} and
           monitor team performance.
         </p>
+        <div className="mt-2 text-sm text-blue-200">
+          Ward ID: {user?.wardId} | Total Complaints: {complaints.length}
+        </div>
       </div>
 
       {/* Statistics Cards */}
