@@ -8,6 +8,7 @@ import swaggerUi from "swagger-ui-express";
 import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
+import fs from "fs";
 
 // Import database connection
 import connectDB from "./db/connection.js";
@@ -20,10 +21,13 @@ import guestRoutes from "./routes/guestRoutes.js";
 import wardRoutes from "./routes/wardRoutes.js";
 import adminRoutes from "./routes/adminRoutes.js";
 import reportRoutes from "./routes/reportRoutes.js";
+import maintenanceAnalyticsRoutes from "./routes/maintenanceAnalyticsRoutes.js";
 import uploadRoutes from "./routes/uploadRoutes.js";
 import complaintTypeRoutes from "./routes/complaintTypeRoutes.js";
 import systemConfigRoutes from "./routes/systemConfigRoutes.js";
+import captchaRoutes from "./routes/captchaRoutes.js";
 import testRoutes from "./routes/testRoutes.js";
+import guestOtpRoutes from "./routes/guestOtpRoutes.js";
 
 // Import middleware
 import { errorHandler } from "./middleware/errorHandler.js";
@@ -105,19 +109,61 @@ export function createApp() {
     }),
   );
 
-  // Rate limiting
+  // Rate limiting - more lenient for development
   const limiter = rateLimit({
     windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
-    max: parseInt(process.env.RATE_LIMIT_MAX) || 100, // limit each IP to 100 requests per windowMs
+    max:
+      parseInt(process.env.RATE_LIMIT_MAX) ||
+      (process.env.NODE_ENV === "development" ? 1000 : 100), // Higher limit for development
     message: {
       success: false,
       message: "Too many requests from this IP, please try again later.",
     },
     standardHeaders: true,
     legacyHeaders: false,
+    // Skip rate limiting for certain conditions in development
+    skip: (req) => {
+      return process.env.NODE_ENV === "development" && req.ip === "127.0.0.1";
+    },
   });
 
   app.use("/api/", limiter);
+
+  // Development routes for rate limiting management
+  if (process.env.NODE_ENV === "development") {
+    app.get("/api/rate-limit/status", (req, res) => {
+      res.json({
+        success: true,
+        ip: req.ip,
+        headers: {
+          "x-forwarded-for": req.headers["x-forwarded-for"],
+          "x-real-ip": req.headers["x-real-ip"],
+        },
+        rateLimit: {
+          windowMs:
+            parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
+          max: parseInt(process.env.RATE_LIMIT_MAX) || 1000,
+        },
+      });
+    });
+
+    app.post("/api/rate-limit/reset", (req, res) => {
+      try {
+        // Clear the rate limit store (this will reset all rate limits)
+        limiter.resetKey(req.ip);
+        res.json({
+          success: true,
+          message: `Rate limit reset for IP: ${req.ip}`,
+        });
+      } catch (error) {
+        res.json({
+          success: true,
+          message:
+            "Rate limit store cleared (server restart also clears limits)",
+        });
+      }
+    });
+  }
 
   // CORS configuration
   app.use(
@@ -162,9 +208,12 @@ export function createApp() {
   app.use("/api/wards", wardRoutes);
   app.use("/api/admin", adminRoutes);
   app.use("/api/reports", reportRoutes);
+  app.use("/api/maintenance", maintenanceAnalyticsRoutes);
   app.use("/api/uploads", uploadRoutes);
   app.use("/api/complaint-types", complaintTypeRoutes);
   app.use("/api/system-config", systemConfigRoutes);
+  app.use("/api/captcha", captchaRoutes);
+  app.use("/api/guest-otp", guestOtpRoutes);
 
   // Development test routes (only in development)
   if (process.env.NODE_ENV !== "production") {
@@ -192,16 +241,6 @@ export function createApp() {
     res.send(specs);
   });
 
-  // Root endpoint
-  app.get("/", (req, res) => {
-    res.json({
-      success: true,
-      message: "Cochin Smart City API",
-      documentation: "/api-docs",
-      health: "/api/health",
-    });
-  });
-
   // 404 handler for API routes
   app.use("/api/*", (req, res) => {
     res.status(404).json({
@@ -210,6 +249,39 @@ export function createApp() {
       data: null,
     });
   });
+
+  // Serve static files from the React build
+  const distPath = path.resolve(__dirname, "../dist/spa");
+  console.log("Serving static files from:", distPath);
+
+  // Check if the build directory exists
+  if (fs.existsSync(distPath)) {
+    app.use(express.static(distPath));
+
+    // SPA fallback - serve index.html for all non-API routes
+    app.get("*", (req, res, next) => {
+      // Skip API routes
+      if (req.path.startsWith("/api")) {
+        return next();
+      }
+
+      // Serve index.html for all other routes (SPA routing)
+      console.log("Serving index.html for:", req.path);
+      res.sendFile(path.join(distPath, "index.html"));
+    });
+  } else {
+    console.warn("Build directory not found:", distPath);
+    // Fallback to API info
+    app.get("/", (req, res) => {
+      res.json({
+        success: true,
+        message: "Cochin Smart City API - Build files not found",
+        documentation: "/api-docs",
+        health: "/api/health",
+        note: "Run 'npm run build' to generate static files",
+      });
+    });
+  }
 
   // Error handling middleware (should be last)
   app.use(errorHandler);

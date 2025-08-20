@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAppSelector, useAppDispatch } from "../store/hooks";
+import { useComplaintTypes } from "../hooks/useComplaintTypes";
 import {
   selectAuth,
   getDashboardRouteForRole,
   setCredentials,
 } from "../store/slices/authSlice";
-import { createComplaint } from "../store/slices/complaintsSlice";
+import { useCreateComplaintMutation } from "../store/api/complaintsApi";
 import {
   selectGuestState,
   submitGuestComplaint,
@@ -30,10 +31,11 @@ import {
   selectImagePreview,
   FileAttachment,
   GuestComplaintData,
-  resendOTP,
-  verifyOTPAndRegister,
 } from "../store/slices/guestSlice";
-import { useGetWardsQuery } from "../store/api/guestApi";
+import {
+  useGetWardsQuery,
+  useVerifyGuestOtpMutation,
+} from "../store/api/guestApi";
 import { useOtpFlow } from "../contexts/OtpContext";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -46,6 +48,7 @@ import {
   CardTitle,
 } from "../components/ui/card";
 import { Textarea } from "../components/ui/textarea";
+import SimpleLocationMapDialog from "../components/SimpleLocationMapDialog";
 import {
   Select,
   SelectContent,
@@ -87,7 +90,6 @@ import {
   Info,
 } from "lucide-react";
 import { useToast } from "../hooks/use-toast";
-
 
 const COMPLAINT_TYPES = [
   {
@@ -166,13 +168,21 @@ const PRIORITIES = [
 
 const UnifiedComplaintForm: React.FC = () => {
   const navigate = useNavigate();
+
+  // RTK Query mutations
+  const [createComplaintMutation] = useCreateComplaintMutation();
   const dispatch = useAppDispatch();
   const { toast } = useToast();
   const { openOtpFlow } = useOtpFlow();
+  const [verifyGuestOtp] = useVerifyGuestOtpMutation();
   const { isAuthenticated, user } = useAppSelector(selectAuth);
 
   // Fetch wards from API
-  const { data: wardsResponse, isLoading: wardsLoading, error: wardsError } = useGetWardsQuery();
+  const {
+    data: wardsResponse,
+    isLoading: wardsLoading,
+    error: wardsError,
+  } = useGetWardsQuery();
   const wards = Array.isArray(wardsResponse?.data) ? wardsResponse.data : [];
 
   // Use guest form state as the canonical source for form management
@@ -195,6 +205,7 @@ const UnifiedComplaintForm: React.FC = () => {
   const [submissionMode, setSubmissionMode] = useState<"citizen" | "guest">(
     isAuthenticated ? "citizen" : "guest",
   );
+  const [isMapDialogOpen, setIsMapDialogOpen] = useState(false);
 
   // OTP state
   const [otpCode, setOtpCode] = useState("");
@@ -259,6 +270,30 @@ const UnifiedComplaintForm: React.FC = () => {
       dispatch(updateGuestFormData({ [name]: value }));
     },
     [dispatch],
+  );
+
+  // Handle location selection from map
+  const handleLocationSelect = useCallback(
+    (location: {
+      latitude: number;
+      longitude: number;
+      address?: string;
+      area?: string;
+      landmark?: string;
+    }) => {
+      dispatch(
+        updateGuestFormData({
+          landmark: location.landmark || location.address || "",
+          area: location.area || formData.area,
+          address: location.address || formData.address,
+          coordinates: {
+            latitude: location.latitude,
+            longitude: location.longitude,
+          },
+        }),
+      );
+    },
+    [dispatch, formData.area, formData.address],
   );
 
   // Handle file upload
@@ -429,7 +464,7 @@ const UnifiedComplaintForm: React.FC = () => {
           isAnonymous: false,
         };
 
-        const result = await dispatch(createComplaint(complaintData)).unwrap();
+        const result = await createComplaintMutation(complaintData).unwrap();
 
         toast({
           title: "Complaint Submitted Successfully!",
@@ -502,29 +537,28 @@ const UnifiedComplaintForm: React.FC = () => {
     }
 
     try {
-      // Verify OTP and auto-register user
-      const result = await dispatch(
-        verifyOTPAndRegister({
-          email: formData.email,
-          otpCode,
-          complaintId,
-        }),
-      ).unwrap();
+      // Use RTK Query mutation for OTP verification
+      const result = await verifyGuestOtp({
+        email: formData.email,
+        otpCode,
+        complaintId,
+        createAccount: true,
+      }).unwrap();
 
       // Store auth token and user data
-      if (result.token && result.user) {
+      if (result.data?.token && result.data?.user) {
         dispatch(
           setCredentials({
-            token: result.token,
-            user: result.user,
+            token: result.data.token,
+            user: result.data.user,
           }),
         );
-        localStorage.setItem("token", result.token);
+        localStorage.setItem("token", result.data.token);
       }
 
       toast({
         title: "Success!",
-        description: result.isNewUser
+        description: result.data?.isNewUser
           ? "Your complaint has been verified and your citizen account has been created successfully!"
           : "Your complaint has been verified and you've been logged in successfully!",
       });
@@ -537,11 +571,21 @@ const UnifiedComplaintForm: React.FC = () => {
       toast({
         title: "Verification Failed",
         description:
-          error.message || "Invalid verification code. Please try again.",
+          error?.data?.message ||
+          error?.message ||
+          "Invalid verification code. Please try again.",
         variant: "destructive",
       });
     }
-  }, [otpCode, complaintId, formData.email, dispatch, toast, navigate]);
+  }, [
+    otpCode,
+    complaintId,
+    formData.email,
+    verifyGuestOtp,
+    dispatch,
+    toast,
+    navigate,
+  ]);
 
   // Legacy handleSubmit for backward compatibility (now delegates to appropriate handler)
   const handleSubmit = useCallback(() => {
@@ -970,9 +1014,13 @@ const UnifiedComplaintForm: React.FC = () => {
                         </SelectTrigger>
                         <SelectContent>
                           {wardsLoading ? (
-                            <SelectItem value="loading" disabled>Loading wards...</SelectItem>
+                            <SelectItem value="loading" disabled>
+                              Loading wards...
+                            </SelectItem>
                           ) : wardsError ? (
-                            <SelectItem value="error" disabled>Error loading wards</SelectItem>
+                            <SelectItem value="error" disabled>
+                              Error loading wards
+                            </SelectItem>
                           ) : (
                             wards.map((ward) => (
                               <SelectItem key={ward.id} value={ward.id}>
@@ -1003,7 +1051,9 @@ const UnifiedComplaintForm: React.FC = () => {
                         </SelectTrigger>
                         <SelectContent>
                           {availableSubZones.length === 0 ? (
-                            <SelectItem value="no-subzones" disabled>No sub-zones available</SelectItem>
+                            <SelectItem value="no-subzones" disabled>
+                              No sub-zones available
+                            </SelectItem>
                           ) : (
                             availableSubZones.map((subZone) => (
                               <SelectItem key={subZone.id} value={subZone.id}>
@@ -1042,13 +1092,25 @@ const UnifiedComplaintForm: React.FC = () => {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="landmark">Landmark (Optional)</Label>
-                      <Input
-                        id="landmark"
-                        name="landmark"
-                        placeholder="Nearby landmark"
-                        value={formData.landmark}
-                        onChange={handleInputChange}
-                      />
+                      <div className="flex space-x-2">
+                        <Input
+                          id="landmark"
+                          name="landmark"
+                          placeholder="Nearby landmark"
+                          value={formData.landmark}
+                          onChange={handleInputChange}
+                          className="flex-1"
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          onClick={() => setIsMapDialogOpen(true)}
+                          title="Select location on map"
+                        >
+                          <MapPin className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
 
                     <div className="space-y-2">
@@ -1244,9 +1306,11 @@ const UnifiedComplaintForm: React.FC = () => {
                       </p>
                       <p>
                         <strong>Sub-Zone:</strong>{" "}
-                        {
-                          availableSubZones.find(sz => sz.id === formData.subZoneId)?.name || formData.subZoneId || "Not specified"
-                        }
+                        {availableSubZones.find(
+                          (sz) => sz.id === formData.subZoneId,
+                        )?.name ||
+                          formData.subZoneId ||
+                          "Not specified"}
                       </p>
                       <p>
                         <strong>Area:</strong> {formData.area}
@@ -1558,6 +1622,24 @@ const UnifiedComplaintForm: React.FC = () => {
             </DialogContent>
           </Dialog>
         )}
+
+        {/* Location Map Dialog */}
+        <SimpleLocationMapDialog
+          isOpen={isMapDialogOpen}
+          onClose={() => setIsMapDialogOpen(false)}
+          onLocationSelect={handleLocationSelect}
+          initialLocation={
+            formData.coordinates
+              ? {
+                  latitude: formData.coordinates.latitude,
+                  longitude: formData.coordinates.longitude,
+                  address: formData.address,
+                  area: formData.area,
+                  landmark: formData.landmark,
+                }
+              : undefined
+          }
+        />
       </div>
     </div>
   );

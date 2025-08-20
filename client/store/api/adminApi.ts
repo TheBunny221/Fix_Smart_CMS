@@ -1,4 +1,4 @@
-import { baseApi, ApiResponse, transformResponse } from "./baseApi";
+import { baseApi, ApiResponse } from "./baseApi";
 
 // Admin API types
 export interface AdminUser {
@@ -101,6 +101,115 @@ export interface ManageRolesRequest {
   wardId?: string;
 }
 
+export interface DashboardAnalyticsResponse {
+  complaintTrends: Array<{
+    month: string;
+    complaints: number;
+    resolved: number;
+  }>;
+  complaintsByType: Array<{
+    name: string;
+    value: number;
+    color: string;
+  }>;
+  wardPerformance: Array<{
+    ward: string;
+    complaints: number;
+    resolved: number;
+    sla: number;
+  }>;
+  metrics: {
+    avgResolutionTime: number;
+    slaCompliance: number;
+    citizenSatisfaction: number;
+    resolutionRate: number;
+  };
+}
+
+export interface RecentActivity {
+  id: string;
+  type: string;
+  message: string;
+  time: string;
+}
+
+export interface DashboardStatsResponse {
+  totalComplaints: number;
+  totalUsers: number;
+  activeComplaints: number;
+  resolvedComplaints: number;
+  overdue: number;
+  wardOfficers: number;
+  maintenanceTeam: number;
+}
+
+export interface UserActivityResponse {
+  period: string;
+  metrics: {
+    activeUsers: number;
+    newRegistrations: number;
+    loginSuccessRate: number;
+  };
+  activities: Array<{
+    id: string;
+    type: string;
+    message: string;
+    time: string;
+    user?: {
+      name: string;
+      email: string;
+      role?: string;
+      ward?: string;
+    };
+    ward?: string;
+  }>;
+}
+
+export interface SystemHealthResponse {
+  status: string;
+  uptime: {
+    seconds: number;
+    formatted: string;
+  };
+  timestamp: string;
+  services: {
+    database: {
+      status: string;
+      responseTime: string;
+    };
+    emailService: {
+      status: string;
+      lastCheck: string;
+    };
+    fileStorage: {
+      status: string;
+      usedPercent: number;
+    };
+    api: {
+      status: string;
+      averageResponseTime: string;
+    };
+  };
+  system: {
+    memory: {
+      used: string;
+      total: string;
+      percentage: string;
+    };
+    errors: {
+      last24h: number;
+      status: string;
+    };
+  };
+  statistics: {
+    totalUsers: number;
+    activeUsers: number;
+    totalComplaints: number;
+    openComplaints: number;
+    systemLoad: number;
+  };
+}
+
 // Admin API slice
 export const adminApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
@@ -127,7 +236,7 @@ export const adminApi = baseApi.injectEndpoints({
 
         return `/admin/users?${params.toString()}`;
       },
-      transformResponse: transformResponse<UsersResponse>,
+      // Removed transformResponse to prevent response body conflicts
       providesTags: ["User"],
     }),
 
@@ -138,7 +247,7 @@ export const adminApi = baseApi.injectEndpoints({
         method: "POST",
         body: userData,
       }),
-      transformResponse: transformResponse<AdminUser>,
+      // Removed transformResponse to prevent response body conflicts
       invalidatesTags: ["User"],
     }),
 
@@ -152,7 +261,7 @@ export const adminApi = baseApi.injectEndpoints({
         method: "PUT",
         body: data,
       }),
-      transformResponse: transformResponse<AdminUser>,
+      // Removed transformResponse to prevent response body conflicts
       invalidatesTags: ["User"],
     }),
 
@@ -162,7 +271,7 @@ export const adminApi = baseApi.injectEndpoints({
         url: `/admin/users/${id}`,
         method: "DELETE",
       }),
-      transformResponse: transformResponse<null>,
+      // Removed transformResponse to prevent response body conflicts
       invalidatesTags: ["User"],
     }),
 
@@ -172,7 +281,7 @@ export const adminApi = baseApi.injectEndpoints({
         url: `/admin/users/${id}/activate`,
         method: "PUT",
       }),
-      transformResponse: transformResponse<AdminUser>,
+      // Removed transformResponse to prevent response body conflicts
       invalidatesTags: ["User"],
     }),
 
@@ -182,7 +291,7 @@ export const adminApi = baseApi.injectEndpoints({
         url: `/admin/users/${id}/deactivate`,
         method: "PUT",
       }),
-      transformResponse: transformResponse<AdminUser>,
+      // Removed transformResponse to prevent response body conflicts
       invalidatesTags: ["User"],
     }),
 
@@ -196,21 +305,21 @@ export const adminApi = baseApi.injectEndpoints({
         method: "POST",
         body: data,
       }),
-      transformResponse: transformResponse<{ affectedCount: number }>,
+      // Removed transformResponse to prevent response body conflicts
       invalidatesTags: ["User"],
     }),
 
     // Get user statistics
     getUserStats: builder.query<ApiResponse<UserStatsResponse>, void>({
       query: () => "/admin/stats/users",
-      transformResponse: transformResponse<UserStatsResponse>,
+      // Removed transformResponse to prevent response body conflicts
       providesTags: ["Analytics"],
     }),
 
     // Get system statistics
     getSystemStats: builder.query<ApiResponse<SystemStatsResponse>, void>({
       query: () => "/admin/stats/system",
-      transformResponse: transformResponse<SystemStatsResponse>,
+      // Removed transformResponse to prevent response body conflicts
       providesTags: ["Analytics"],
     }),
 
@@ -232,7 +341,7 @@ export const adminApi = baseApi.injectEndpoints({
 
         return `/admin/analytics?${params.toString()}`;
       },
-      transformResponse: transformResponse<AnalyticsResponse>,
+      // Removed transformResponse to prevent response body conflicts
       providesTags: ["Analytics"],
     }),
 
@@ -243,8 +352,52 @@ export const adminApi = baseApi.injectEndpoints({
         method: "PUT",
         body: data,
       }),
-      transformResponse: transformResponse<AdminUser>,
+      // Removed transformResponse to prevent response body conflicts
       invalidatesTags: ["User"],
+    }),
+
+    // Get dashboard analytics
+    getDashboardAnalytics: builder.query<
+      ApiResponse<DashboardAnalyticsResponse>,
+      void
+    >({
+      query: () => "/admin/dashboard/analytics",
+      // Removed transformResponse to prevent response body conflicts
+      providesTags: ["Analytics"],
+    }),
+
+    // Get recent activity
+    getRecentActivity: builder.query<
+      ApiResponse<RecentActivity[]>,
+      { limit?: number }
+    >({
+      query: ({ limit = 5 }) => `/admin/dashboard/activity?limit=${limit}`,
+      // Removed transformResponse to prevent response body conflicts
+      providesTags: ["Analytics"],
+    }),
+
+    // Get dashboard statistics
+    getDashboardStats: builder.query<ApiResponse<DashboardStatsResponse>, void>(
+      {
+        query: () => "/admin/dashboard/stats",
+        // Removed transformResponse to prevent response body conflicts
+        providesTags: ["Analytics"],
+      },
+    ),
+
+    // Get user activity
+    getUserActivity: builder.query<
+      ApiResponse<UserActivityResponse>,
+      { period?: string }
+    >({
+      query: ({ period = "24h" }) => `/admin/user-activity?period=${period}`,
+      providesTags: ["Analytics"],
+    }),
+
+    // Get system health
+    getSystemHealth: builder.query<ApiResponse<SystemHealthResponse>, void>({
+      query: () => "/admin/system-health",
+      providesTags: ["Analytics"],
     }),
   }),
 });
@@ -263,6 +416,11 @@ export const {
   useGetSystemStatsQuery,
   useGetAnalyticsQuery,
   useManageRolesMutation,
+  useGetDashboardAnalyticsQuery,
+  useGetRecentActivityQuery,
+  useGetDashboardStatsQuery,
+  useGetUserActivityQuery,
+  useGetSystemHealthQuery,
 } = adminApi;
 
 // Re-export for convenience
@@ -279,4 +437,9 @@ export const useAdminApi = {
   useGetSystemStatsQuery,
   useGetAnalyticsQuery,
   useManageRolesMutation,
+  useGetDashboardAnalyticsQuery,
+  useGetRecentActivityQuery,
+  useGetDashboardStatsQuery,
+  useGetUserActivityQuery,
+  useGetSystemHealthQuery,
 };

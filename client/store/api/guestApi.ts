@@ -1,4 +1,4 @@
-import { baseApi, ApiResponse, transformResponse } from "./baseApi";
+import { baseApi, ApiResponse } from "./baseApi";
 import type { User } from "../slices/authSlice";
 
 // Guest API types
@@ -65,9 +65,44 @@ export interface PublicStatsResponse {
   byStatus: Record<string, number>;
 }
 
+export interface CaptchaResponse {
+  captchaId: string;
+  captchaSvg: string;
+}
+
+export interface CaptchaVerifyRequest {
+  captchaId: string;
+  captchaText: string;
+}
+
 // Guest API slice
 export const guestApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
+    // OTP Verification for Complaint Tracking
+    requestComplaintOtp: builder.mutation<
+      ApiResponse<{ complaintId: string; email: string }>,
+      { complaintId: string }
+    >({
+      query: (data) => ({
+        url: "/guest-otp/request-complaint-otp",
+        method: "POST",
+        body: data,
+      }),
+    }),
+
+    verifyComplaintOtp: builder.mutation<
+      ApiResponse<{
+        complaint: any;
+        user: any;
+      }>,
+      { complaintId: string; otpCode: string }
+    >({
+      query: (data) => ({
+        url: "/guest-otp/verify-complaint-otp",
+        method: "POST",
+        body: data,
+      }),
+    }),
     // Submit guest complaint
     submitGuestComplaint: builder.mutation<
       ApiResponse<GuestComplaintResponse>,
@@ -78,7 +113,7 @@ export const guestApi = baseApi.injectEndpoints({
         method: "POST",
         body: complaintData,
       }),
-      transformResponse: transformResponse<GuestComplaintResponse>,
+      // Removed transformResponse to prevent response body conflicts
     }),
 
     // Verify guest OTP and create account
@@ -91,7 +126,7 @@ export const guestApi = baseApi.injectEndpoints({
         method: "POST",
         body: data,
       }),
-      transformResponse: transformResponse<GuestOtpVerifyResponse>,
+      // Removed transformResponse to prevent response body conflicts
       invalidatesTags: ["Auth"],
     }),
 
@@ -105,7 +140,7 @@ export const guestApi = baseApi.injectEndpoints({
         method: "POST",
         body: data,
       }),
-      transformResponse: transformResponse,
+      // Removed transformResponse to prevent response body conflicts
     }),
 
     // Track complaint (public endpoint)
@@ -123,7 +158,7 @@ export const guestApi = baseApi.injectEndpoints({
           method: "GET",
         };
       },
-      transformResponse: transformResponse<TrackComplaintResponse>,
+      // Removed transformResponse to prevent response body conflicts
       providesTags: (result, error, { complaintId }) => [
         { type: "Complaint", id: complaintId },
       ],
@@ -132,17 +167,17 @@ export const guestApi = baseApi.injectEndpoints({
     // Get public statistics
     getPublicStats: builder.query<ApiResponse<PublicStatsResponse>, void>({
       query: () => "/guest/stats",
-      transformResponse: transformResponse<PublicStatsResponse>,
+      // Removed transformResponse to prevent response body conflicts
       providesTags: ["Analytics"],
     }),
 
     // Get complaint types (public endpoint)
-    getComplaintTypes: builder.query<
+    getPublicComplaintTypes: builder.query<
       ApiResponse<Array<{ id: string; name: string; description?: string }>>,
       void
     >({
       query: () => "/guest/complaint-types",
-      transformResponse: transformResponse,
+      // Removed transformResponse to prevent response body conflicts
       providesTags: ["ComplaintType"],
     }),
 
@@ -152,22 +187,46 @@ export const guestApi = baseApi.injectEndpoints({
       void
     >({
       query: () => "/guest/wards",
-      transformResponse: transformResponse,
+      // Removed transformResponse to prevent response body conflicts
       providesTags: ["Ward"],
+    }),
+
+    // Generate CAPTCHA
+    generateCaptcha: builder.query<ApiResponse<CaptchaResponse>, void>({
+      query: () => "/captcha/generate",
+      // Don't cache CAPTCHA as each should be unique
+      keepUnusedDataFor: 0,
+    }),
+
+    // Verify CAPTCHA (optional standalone endpoint)
+    verifyCaptcha: builder.mutation<
+      ApiResponse<{ message: string }>,
+      CaptchaVerifyRequest
+    >({
+      query: (data) => ({
+        url: "/captcha/verify",
+        method: "POST",
+        body: data,
+      }),
     }),
   }),
 });
 
 // Export hooks
 export const {
+  useRequestComplaintOtpMutation,
+  useVerifyComplaintOtpMutation,
   useSubmitGuestComplaintMutation,
   useVerifyGuestOtpMutation,
   useResendGuestOtpMutation,
   useTrackComplaintQuery,
   useLazyTrackComplaintQuery,
   useGetPublicStatsQuery,
-  useGetComplaintTypesQuery,
+  useGetPublicComplaintTypesQuery,
   useGetWardsQuery,
+  useGenerateCaptchaQuery,
+  useLazyGenerateCaptchaQuery,
+  useVerifyCaptchaMutation,
 } = guestApi;
 
 // Re-export for backward compatibility and convenience
@@ -178,6 +237,6 @@ export const useGuestApi = {
   useTrackComplaintQuery,
   useLazyTrackComplaintQuery,
   useGetPublicStatsQuery,
-  useGetComplaintTypesQuery,
+  useGetPublicComplaintTypesQuery,
   useGetWardsQuery,
 };

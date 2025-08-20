@@ -1,7 +1,17 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { useAppSelector, useAppDispatch } from "../store/hooks";
-import { fetchComplaints } from "../store/slices/complaintsSlice";
+import { useAppSelector } from "../store/hooks";
+import {
+  useGetComplaintsQuery,
+  useGetComplaintStatisticsQuery,
+} from "../store/api/complaintsApi";
+import {
+  useGetDashboardAnalyticsQuery,
+  useGetRecentActivityQuery,
+  useGetDashboardStatsQuery,
+  useGetUserActivityQuery,
+  useGetSystemHealthQuery,
+} from "../store/api/adminApi";
 import {
   Card,
   CardContent,
@@ -51,107 +61,112 @@ import {
 } from "lucide-react";
 
 const AdminDashboard: React.FC = () => {
-  const dispatch = useAppDispatch();
-  const { complaints, isLoading } = useAppSelector((state) => state.complaints);
   const { translations } = useAppSelector((state) => state.language);
 
-  const [systemStats, setSystemStats] = useState({
+  // Fetch real-time data using API queries
+  const {
+    data: dashboardStats,
+    isLoading: statsLoading,
+    error: statsError,
+  } = useGetDashboardStatsQuery();
+
+  const {
+    data: analyticsData,
+    isLoading: analyticsLoading,
+    error: analyticsError,
+  } = useGetDashboardAnalyticsQuery();
+
+  const {
+    data: recentActivityData,
+    isLoading: activityLoading,
+    error: activityError,
+  } = useGetRecentActivityQuery({ limit: 5 });
+
+  const {
+    data: userActivityData,
+    isLoading: userActivityLoading,
+    error: userActivityError,
+  } = useGetUserActivityQuery({ period: "24h" });
+
+  const {
+    data: systemHealthData,
+    isLoading: systemHealthLoading,
+    error: systemHealthError,
+  } = useGetSystemHealthQuery();
+
+  const systemStats = dashboardStats?.data || {
     totalComplaints: 0,
     totalUsers: 0,
     activeComplaints: 0,
     resolvedComplaints: 0,
     overdue: 0,
-    slaCompliance: 87,
-    avgResolutionTime: 2.3,
-    citizenSatisfaction: 4.2,
-    wardOfficers: 12,
-    maintenanceTeam: 28,
-  });
+    wardOfficers: 0,
+    maintenanceTeam: 0,
+  };
 
-  useEffect(() => {
-    dispatch(fetchComplaints());
-  }, [dispatch]);
+  const analytics = analyticsData?.data;
+  const recentActivity = recentActivityData?.data || [];
+  const isLoading =
+    statsLoading ||
+    analyticsLoading ||
+    activityLoading ||
+    userActivityLoading ||
+    systemHealthLoading;
 
-  useEffect(() => {
-    // Calculate system statistics
-    const totalComplaints = complaints.length;
-    const activeComplaints = complaints.filter((c) =>
-      ["REGISTERED", "ASSIGNED", "IN_PROGRESS"].includes(c.status),
-    ).length;
-    const resolvedComplaints = complaints.filter(
-      (c) => c.status === "RESOLVED",
-    ).length;
-    const overdue = complaints.filter((c) => {
-      if (!c.deadline) return false;
-      return new Date(c.deadline) < new Date() && c.status !== "RESOLVED";
-    }).length;
+  // Use real data from APIs with fallbacks
+  const complaintTrends = analytics?.complaintTrends || [];
+  const complaintsByType = analytics?.complaintsByType || [];
+  const wardPerformance = analytics?.wardPerformance || [];
+  const metrics = analytics?.metrics || {
+    avgResolutionTime: 0,
+    slaCompliance: 0,
+    citizenSatisfaction: 0,
+    resolutionRate: 0,
+  };
 
-    setSystemStats((prev) => ({
-      ...prev,
-      totalComplaints,
-      activeComplaints,
-      resolvedComplaints,
-      overdue,
-    }));
-  }, [complaints]);
+  // Development debugging
+  if (process.env.NODE_ENV === "development") {
+    console.log("Dashboard Data Debug:", {
+      analytics: analytics,
+      complaintTrends: complaintTrends,
+      complaintsByType: complaintsByType,
+      wardPerformance: wardPerformance,
+      metrics: metrics,
+      systemStats: systemStats,
+    });
+  }
 
-  // Mock data for charts
-  const complaintTrends = [
-    { month: "Jan", complaints: 45, resolved: 40 },
-    { month: "Feb", complaints: 52, resolved: 48 },
-    { month: "Mar", complaints: 61, resolved: 55 },
-    { month: "Apr", complaints: 38, resolved: 42 },
-    { month: "May", complaints: 67, resolved: 61 },
-    { month: "Jun", complaints: 74, resolved: 69 },
-  ];
+  // Show loading state
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-lg">Loading dashboard data...</div>
+      </div>
+    );
+  }
 
-  const complaintsByType = [
-    { name: "Water Supply", value: 35, color: "#3B82F6" },
-    { name: "Electricity", value: 28, color: "#EF4444" },
-    { name: "Road Repair", value: 22, color: "#10B981" },
-    { name: "Garbage", value: 15, color: "#F59E0B" },
-  ];
-
-  const wardPerformance = [
-    { ward: "Ward 1", complaints: 45, resolved: 42, sla: 93 },
-    { ward: "Ward 2", complaints: 38, resolved: 35, sla: 92 },
-    { ward: "Ward 3", complaints: 52, resolved: 46, sla: 88 },
-    { ward: "Ward 4", complaints: 29, resolved: 28, sla: 97 },
-    { ward: "Ward 5", complaints: 41, resolved: 37, sla: 90 },
-  ];
-
-  const recentActivity = [
-    {
-      id: 1,
-      type: "complaint",
-      message: "New complaint registered in Ward 3",
-      time: "2 mins ago",
-    },
-    {
-      id: 2,
-      type: "resolution",
-      message: "Water supply issue resolved in Ward 1",
-      time: "15 mins ago",
-    },
-    {
-      id: 3,
-      type: "assignment",
-      message: "Complaint assigned to maintenance team",
-      time: "1 hour ago",
-    },
-    {
-      id: 4,
-      type: "user",
-      message: "New ward officer registered",
-      time: "2 hours ago",
-    },
-    {
-      id: 5,
-      type: "alert",
-      message: "SLA breach alert for Ward 3",
-      time: "3 hours ago",
-    },
-  ];
+  // Show error state
+  if (
+    statsError ||
+    analyticsError ||
+    activityError ||
+    userActivityError ||
+    systemHealthError
+  ) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-lg text-red-600">
+          Error loading dashboard data. Please try refreshing the page.
+          {process.env.NODE_ENV === "development" && (
+            <div className="text-sm mt-2">
+              Errors:{" "}
+              {JSON.stringify({ statsError, analyticsError, activityError })}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   const getActivityIcon = (type: string) => {
     switch (type) {
@@ -199,13 +214,13 @@ const AdminDashboard: React.FC = () => {
           </div>
           <div className="bg-purple-700 rounded-lg p-3">
             <div className="text-2xl font-bold">
-              {systemStats.slaCompliance}%
+              {metrics?.slaCompliance || 0}%
             </div>
             <div className="text-sm text-purple-200">SLA Compliance</div>
           </div>
           <div className="bg-purple-700 rounded-lg p-3">
             <div className="text-2xl font-bold">
-              {systemStats.citizenSatisfaction}/5
+              {(metrics?.citizenSatisfaction || 0).toFixed(1)}/5
             </div>
             <div className="text-sm text-purple-200">Satisfaction</div>
           </div>
@@ -267,7 +282,7 @@ const AdminDashboard: React.FC = () => {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-green-600">
-              {systemStats.avgResolutionTime}d
+              {(metrics?.avgResolutionTime || 0).toFixed(1)}d
             </div>
             <p className="text-xs text-muted-foreground">Target: 3 days</p>
           </CardContent>
@@ -276,9 +291,8 @@ const AdminDashboard: React.FC = () => {
 
       {/* Main Dashboard Tabs */}
       <Tabs defaultValue="overview" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-5">
+        <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="analytics">Analytics</TabsTrigger>
           <TabsTrigger value="performance">Performance</TabsTrigger>
           <TabsTrigger value="users">Users</TabsTrigger>
           <TabsTrigger value="system">System</TabsTrigger>
@@ -292,26 +306,70 @@ const AdminDashboard: React.FC = () => {
                 <CardTitle>Complaint Trends (Last 6 Months)</CardTitle>
               </CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={300}>
-                  <LineChart data={complaintTrends}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="month" />
-                    <YAxis />
-                    <Tooltip />
-                    <Line
-                      type="monotone"
-                      dataKey="complaints"
-                      stroke="#3B82F6"
-                      strokeWidth={2}
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="resolved"
-                      stroke="#10B981"
-                      strokeWidth={2}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
+                {complaintTrends && complaintTrends.length > 0 ? (
+                  <>
+                    <ResponsiveContainer width="100%" height={300}>
+                      <LineChart data={complaintTrends}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis
+                          dataKey="month"
+                          tick={{ fontSize: 12 }}
+                          angle={-45}
+                          textAnchor="end"
+                          height={60}
+                        />
+                        <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
+                        <Tooltip
+                          formatter={(value, name) => [
+                            value,
+                            name === "complaints" ? "Complaints" : "Resolved",
+                          ]}
+                          labelFormatter={(label) => `Month: ${label}`}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="complaints"
+                          stroke="#3B82F6"
+                          strokeWidth={2}
+                          name="Complaints"
+                          connectNulls={false}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="resolved"
+                          stroke="#10B981"
+                          strokeWidth={2}
+                          name="Resolved"
+                          connectNulls={false}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                    {process.env.NODE_ENV === "development" && (
+                      <div className="mt-2 text-xs text-gray-400">
+                        Data points: {complaintTrends.length} | Total
+                        complaints:{" "}
+                        {complaintTrends.reduce(
+                          (sum, trend) => sum + (trend.complaints || 0),
+                          0,
+                        )}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="h-[300px] flex items-center justify-center text-gray-500">
+                    <div className="text-center">
+                      <div className="mb-2">
+                        No complaint trend data available
+                      </div>
+                      {process.env.NODE_ENV === "development" && analytics && (
+                        <div className="text-xs">
+                          Analytics loaded: {analytics ? "Yes" : "No"} | Trends
+                          array length: {complaintTrends?.length || 0}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
 
@@ -321,37 +379,78 @@ const AdminDashboard: React.FC = () => {
                 <CardTitle>Complaints by Type</CardTitle>
               </CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={300}>
-                  <PieChart>
-                    <Pie
-                      data={complaintsByType}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={60}
-                      outerRadius={120}
-                      paddingAngle={5}
-                      dataKey="value"
-                    >
-                      {complaintsByType.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
+                {complaintsByType && complaintsByType.length > 0 ? (
+                  <>
+                    <ResponsiveContainer width="100%" height={300}>
+                      <PieChart>
+                        <Pie
+                          data={complaintsByType}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={50}
+                          outerRadius={100}
+                          paddingAngle={2}
+                          dataKey="value"
+                        >
+                          {complaintsByType.map((entry, index) => (
+                            <Cell
+                              key={`cell-${index}`}
+                              fill={entry?.color || "#6B7280"}
+                            />
+                          ))}
+                        </Pie>
+                        <Tooltip
+                          formatter={(value, name) => [
+                            `${value} complaints`,
+                            "Count",
+                          ]}
+                          labelFormatter={(label) => `Type: ${label}`}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-4 max-h-32 overflow-y-auto">
+                      {complaintsByType.map((item, index) => (
+                        <div
+                          key={index}
+                          className="flex items-center space-x-2 text-xs"
+                        >
+                          <div
+                            className="w-3 h-3 rounded-full flex-shrink-0"
+                            style={{
+                              backgroundColor: item?.color || "#6B7280",
+                            }}
+                          ></div>
+                          <span className="truncate">
+                            {item?.name || "Unknown"} ({item?.value || 0})
+                          </span>
+                        </div>
                       ))}
-                    </Pie>
-                    <Tooltip />
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="grid grid-cols-2 gap-2 mt-4">
-                  {complaintsByType.map((item, index) => (
-                    <div key={index} className="flex items-center space-x-2">
-                      <div
-                        className="w-3 h-3 rounded-full"
-                        style={{ backgroundColor: item.color }}
-                      ></div>
-                      <span className="text-sm">
-                        {item.name} ({item.value}%)
-                      </span>
                     </div>
-                  ))}
-                </div>
+                    {process.env.NODE_ENV === "development" && (
+                      <div className="mt-2 text-xs text-gray-400">
+                        Types: {complaintsByType.length} | Total:{" "}
+                        {complaintsByType.reduce(
+                          (sum, type) => sum + (type.value || 0),
+                          0,
+                        )}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="h-[300px] flex items-center justify-center text-gray-500">
+                    <div className="text-center">
+                      <div className="mb-2">
+                        No complaint type data available
+                      </div>
+                      {process.env.NODE_ENV === "development" && analytics && (
+                        <div className="text-xs">
+                          Analytics loaded: {analytics ? "Yes" : "No"} | Types
+                          array length: {complaintsByType?.length || 0}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>
@@ -365,84 +464,61 @@ const AdminDashboard: React.FC = () => {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                {recentActivity.map((activity) => (
-                  <div
-                    key={activity.id}
-                    className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg"
-                  >
-                    {getActivityIcon(activity.type)}
-                    <div className="flex-1">
-                      <p className="text-sm font-medium">{activity.message}</p>
-                      <p className="text-xs text-gray-500">{activity.time}</p>
+              {recentActivity.length > 0 ? (
+                <div className="space-y-4">
+                  {recentActivity.map((activity) => (
+                    <div
+                      key={activity.id}
+                      className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg"
+                    >
+                      {getActivityIcon(activity.type)}
+                      <div className="flex-1">
+                        <p className="text-sm font-medium">
+                          {activity.message}
+                        </p>
+                        <p className="text-xs text-gray-500">{activity.time}</p>
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="h-[200px] flex items-center justify-center text-gray-500">
+                  No recent activity available
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
 
-        <TabsContent value="analytics" className="space-y-6">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Ward Performance */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Ward Performance Analysis</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={wardPerformance}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="ward" />
-                    <YAxis />
-                    <Tooltip />
-                    <Bar dataKey="complaints" fill="#3B82F6" />
-                    <Bar dataKey="resolved" fill="#10B981" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </CardContent>
-            </Card>
-
-            {/* SLA Compliance */}
-            <Card>
-              <CardHeader>
-                <CardTitle>SLA Compliance by Ward</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {wardPerformance.map((ward, index) => (
-                    <div key={index} className="space-y-2">
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm font-medium">{ward.ward}</span>
-                        <span className="text-sm text-gray-600">
-                          {ward.sla}%
-                        </span>
-                      </div>
-                      <Progress value={ward.sla} className="h-2" />
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </TabsContent>
-
         <TabsContent value="performance" className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* Performance KPIs */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
             <Card>
               <CardHeader>
                 <CardTitle>Response Time</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-3xl font-bold text-blue-600">2.1h</div>
-                <p className="text-sm text-gray-600">Average first response</p>
+                <div className="text-3xl font-bold text-blue-600">
+                  {(metrics?.avgResolutionTime || 0).toFixed(1)}d
+                </div>
+                <p className="text-sm text-gray-600">Average resolution time</p>
                 <div className="mt-4">
                   <div className="flex justify-between text-sm mb-1">
-                    <span>Target: 4h</span>
-                    <span>52% improvement</span>
+                    <span>Target: 3d</span>
+                    <span>
+                      {(metrics?.avgResolutionTime || 0) <= 3
+                        ? "On target"
+                        : "Needs improvement"}
+                    </span>
                   </div>
-                  <Progress value={88} className="h-2" />
+                  <Progress
+                    value={Math.min(
+                      (3 / Math.max(metrics?.avgResolutionTime || 0.1, 0.1)) *
+                        100,
+                      100,
+                    )}
+                    className="h-2"
+                  />
                 </div>
               </CardContent>
             </Card>
@@ -452,14 +528,53 @@ const AdminDashboard: React.FC = () => {
                 <CardTitle>Resolution Rate</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-3xl font-bold text-green-600">94.2%</div>
+                <div className="text-3xl font-bold text-green-600">
+                  {metrics?.resolutionRate || 0}%
+                </div>
                 <p className="text-sm text-gray-600">Complaints resolved</p>
                 <div className="mt-4">
                   <div className="flex justify-between text-sm mb-1">
-                    <span>This month</span>
-                    <span>+5.2%</span>
+                    <span>Target: 90%</span>
+                    <span>
+                      {(metrics?.resolutionRate || 0) >= 90
+                        ? "Excellent"
+                        : (metrics?.resolutionRate || 0) >= 75
+                          ? "Good"
+                          : "Needs improvement"}
+                    </span>
                   </div>
-                  <Progress value={94} className="h-2" />
+                  <Progress
+                    value={metrics?.resolutionRate || 0}
+                    className="h-2"
+                  />
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>SLA Compliance</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-3xl font-bold text-purple-600">
+                  {metrics?.slaCompliance || 0}%
+                </div>
+                <p className="text-sm text-gray-600">Meeting deadlines</p>
+                <div className="mt-4">
+                  <div className="flex justify-between text-sm mb-1">
+                    <span>Target: 85%</span>
+                    <span>
+                      {(metrics?.slaCompliance || 0) >= 85
+                        ? "Excellent"
+                        : (metrics?.slaCompliance || 0) >= 70
+                          ? "Good"
+                          : "Below target"}
+                    </span>
+                  </div>
+                  <Progress
+                    value={metrics?.slaCompliance || 0}
+                    className="h-2"
+                  />
                 </div>
               </CardContent>
             </Card>
@@ -469,14 +584,118 @@ const AdminDashboard: React.FC = () => {
                 <CardTitle>Satisfaction Score</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-3xl font-bold text-yellow-600">4.2/5</div>
+                <div className="text-3xl font-bold text-yellow-600">
+                  {(metrics?.citizenSatisfaction || 0).toFixed(1)}/5
+                </div>
                 <p className="text-sm text-gray-600">Citizen feedback</p>
                 <div className="mt-4">
                   <div className="flex justify-between text-sm mb-1">
                     <span>Target: 4.0</span>
-                    <span>Above target</span>
+                    <span>
+                      {(metrics?.citizenSatisfaction || 0) >= 4.0
+                        ? "Above target"
+                        : "Below target"}
+                    </span>
                   </div>
-                  <Progress value={84} className="h-2" />
+                  <Progress
+                    value={((metrics?.citizenSatisfaction || 0) / 5) * 100}
+                    className="h-2"
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Performance Charts */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Performance Summary */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Performance Summary</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 gap-6">
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm">Overall Resolution Rate</span>
+                      <span className="text-lg font-bold text-green-600">
+                        {metrics?.resolutionRate || 0}%
+                      </span>
+                    </div>
+                    <Progress
+                      value={metrics?.resolutionRate || 0}
+                      className="h-3"
+                    />
+
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm">SLA Compliance</span>
+                      <span className="text-lg font-bold text-blue-600">
+                        {metrics?.slaCompliance || 0}%
+                      </span>
+                    </div>
+                    <Progress
+                      value={metrics?.slaCompliance || 0}
+                      className="h-3"
+                    />
+                  </div>
+
+                  <div className="space-y-4">
+                    <div className="text-center">
+                      <div className="text-3xl font-bold text-orange-600">
+                        {(metrics?.avgResolutionTime || 0).toFixed(1)}d
+                      </div>
+                      <p className="text-sm text-gray-600">
+                        Average Resolution Time
+                      </p>
+                      <div className="text-xs text-gray-500 mt-1">
+                        Target: 3 days
+                      </div>
+                    </div>
+
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-purple-600">
+                        {(metrics?.citizenSatisfaction || 0).toFixed(1)}/5
+                      </div>
+                      <p className="text-sm text-gray-600">
+                        Satisfaction Score
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Quick Actions */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Quick Actions</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 gap-3">
+                  <Link to="/reports">
+                    <Button variant="outline" className="w-full">
+                      <BarChart3 className="h-4 w-4 mr-2" />
+                      Detailed Reports
+                    </Button>
+                  </Link>
+                  <Link to="/admin/analytics">
+                    <Button variant="outline" className="w-full">
+                      <TrendingUp className="h-4 w-4 mr-2" />
+                      Analytics
+                    </Button>
+                  </Link>
+                  <Link to="/admin/users/new">
+                    <Button variant="outline" className="w-full">
+                      <Users className="h-4 w-4 mr-2" />
+                      Add User
+                    </Button>
+                  </Link>
+                  <Link to="/admin/config">
+                    <Button variant="outline" className="w-full">
+                      <Settings className="h-4 w-4 mr-2" />
+                      Settings
+                    </Button>
+                  </Link>
                 </div>
               </CardContent>
             </Card>
@@ -514,23 +733,66 @@ const AdminDashboard: React.FC = () => {
 
             <Card>
               <CardHeader>
-                <CardTitle>User Activity</CardTitle>
+                <CardTitle>User Activity (Real-time)</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm">Active Users (24h)</span>
-                    <Badge variant="secondary">32</Badge>
+                {userActivityLoading ? (
+                  <div className="flex items-center justify-center py-4">
+                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+                    <span className="ml-2 text-sm">Loading activity...</span>
                   </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm">New Registrations (7d)</span>
-                    <Badge variant="secondary">5</Badge>
+                ) : userActivityError ? (
+                  <div className="text-center py-4 text-red-600">
+                    <p className="text-sm">Failed to load user activity</p>
                   </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm">Login Success Rate</span>
-                    <Badge variant="secondary">98.7%</Badge>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm">Active Users (24h)</span>
+                      <Badge variant="secondary">
+                        {userActivityData?.data?.metrics?.activeUsers || 0}
+                      </Badge>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm">New Registrations (24h)</span>
+                      <Badge variant="secondary">
+                        {userActivityData?.data?.metrics?.newRegistrations || 0}
+                      </Badge>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm">Login Success Rate</span>
+                      <Badge variant="secondary">
+                        {userActivityData?.data?.metrics?.loginSuccessRate || 0}
+                        %
+                      </Badge>
+                    </div>
+                    {userActivityData?.data?.activities &&
+                      userActivityData.data.activities.length > 0 && (
+                        <div className="mt-4">
+                          <h4 className="text-sm font-medium mb-2">
+                            Recent Activity
+                          </h4>
+                          <div className="space-y-2 max-h-32 overflow-y-auto">
+                            {userActivityData.data.activities
+                              .slice(0, 3)
+                              .map((activity) => (
+                                <div
+                                  key={activity.id}
+                                  className="text-xs p-2 bg-gray-50 rounded"
+                                >
+                                  <p className="font-medium">
+                                    {activity.message}
+                                  </p>
+                                  <p className="text-gray-500">
+                                    {activity.time}
+                                  </p>
+                                </div>
+                              ))}
+                          </div>
+                        </div>
+                      )}
                   </div>
-                </div>
+                )}
               </CardContent>
             </Card>
           </div>
@@ -549,13 +811,13 @@ const AdminDashboard: React.FC = () => {
                     System Settings
                   </Button>
                 </Link>
-                <Link to="/admin/config/wards" className="block">
+                <Link to="/admin/config?tab=wards" className="block">
                   <Button variant="outline" className="w-full justify-start">
                     <MapPin className="h-4 w-4 mr-2" />
                     Ward Management
                   </Button>
                 </Link>
-                <Link to="/admin/config/types" className="block">
+                <Link to="/admin/config?tab=types" className="block">
                   <Button variant="outline" className="w-full justify-start">
                     <FileText className="h-4 w-4 mr-2" />
                     Complaint Types
@@ -566,75 +828,109 @@ const AdminDashboard: React.FC = () => {
 
             <Card>
               <CardHeader>
-                <CardTitle>System Health</CardTitle>
+                <CardTitle>System Health (Real-time)</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm">Database Status</span>
-                    <Badge className="bg-green-100 text-green-800">
-                      Healthy
-                    </Badge>
+                {systemHealthLoading ? (
+                  <div className="flex items-center justify-center py-4">
+                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+                    <span className="ml-2 text-sm">Checking health...</span>
                   </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm">Email Service</span>
-                    <Badge className="bg-green-100 text-green-800">
-                      Operational
-                    </Badge>
+                ) : systemHealthError ? (
+                  <div className="text-center py-4 text-red-600">
+                    <p className="text-sm">Failed to load system health</p>
                   </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm">File Storage</span>
-                    <Badge className="bg-yellow-100 text-yellow-800">
-                      85% Used
-                    </Badge>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm">System Uptime</span>
+                      <Badge className="bg-blue-100 text-blue-800">
+                        {systemHealthData?.data?.uptime?.formatted || "N/A"}
+                      </Badge>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm">Database Status</span>
+                      <Badge
+                        className={
+                          systemHealthData?.data?.services?.database?.status ===
+                          "healthy"
+                            ? "bg-green-100 text-green-800"
+                            : "bg-red-100 text-red-800"
+                        }
+                      >
+                        {systemHealthData?.data?.services?.database?.status ===
+                        "healthy"
+                          ? "Healthy"
+                          : "Unhealthy"}
+                        {systemHealthData?.data?.services?.database
+                          ?.responseTime &&
+                          ` (${systemHealthData.data.services.database.responseTime})`}
+                      </Badge>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm">Email Service</span>
+                      <Badge
+                        className={
+                          systemHealthData?.data?.services?.emailService
+                            ?.status === "operational"
+                            ? "bg-green-100 text-green-800"
+                            : "bg-red-100 text-red-800"
+                        }
+                      >
+                        {systemHealthData?.data?.services?.emailService
+                          ?.status || "Unknown"}
+                      </Badge>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm">File Storage</span>
+                      <Badge
+                        className={
+                          (systemHealthData?.data?.services?.fileStorage
+                            ?.usedPercent || 0) > 90
+                            ? "bg-red-100 text-red-800"
+                            : (systemHealthData?.data?.services?.fileStorage
+                                  ?.usedPercent || 0) > 75
+                              ? "bg-yellow-100 text-yellow-800"
+                              : "bg-green-100 text-green-800"
+                        }
+                      >
+                        {systemHealthData?.data?.services?.fileStorage
+                          ?.usedPercent || 0}
+                        % Used
+                      </Badge>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm">API Response</span>
+                      <Badge className="bg-green-100 text-green-800">
+                        {systemHealthData?.data?.services?.api
+                          ?.averageResponseTime || "N/A"}
+                      </Badge>
+                    </div>
+                    {systemHealthData?.data?.system?.memory && (
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm">Memory Usage</span>
+                        <Badge
+                          className={
+                            systemHealthData.data.system.memory.percentage > 80
+                              ? "bg-red-100 text-red-800"
+                              : systemHealthData.data.system.memory.percentage >
+                                  60
+                                ? "bg-yellow-100 text-yellow-800"
+                                : "bg-green-100 text-green-800"
+                          }
+                        >
+                          {systemHealthData.data.system.memory.used} (
+                          {systemHealthData.data.system.memory.percentage}%)
+                        </Badge>
+                      </div>
+                    )}
                   </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm">API Response</span>
-                    <Badge className="bg-green-100 text-green-800">
-                      Fast (120ms)
-                    </Badge>
-                  </div>
-                </div>
+                )}
               </CardContent>
             </Card>
           </div>
         </TabsContent>
       </Tabs>
-
-      {/* Quick Actions */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Quick Administrative Actions</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <Link to="/admin/users/new">
-              <Button variant="outline" className="w-full">
-                <Users className="h-4 w-4 mr-2" />
-                Add User
-              </Button>
-            </Link>
-            <Link to="/reports">
-              <Button variant="outline" className="w-full">
-                <BarChart3 className="h-4 w-4 mr-2" />
-                Generate Report
-              </Button>
-            </Link>
-            <Link to="/admin/config">
-              <Button variant="outline" className="w-full">
-                <Settings className="h-4 w-4 mr-2" />
-                System Config
-              </Button>
-            </Link>
-            <Link to="/admin/analytics">
-              <Button variant="outline" className="w-full">
-                <TrendingUp className="h-4 w-4 mr-2" />
-                View Analytics
-              </Button>
-            </Link>
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
 };

@@ -1,9 +1,4 @@
-import {
-  baseApi,
-  ApiResponse,
-  transformResponse,
-  optimisticUpdate,
-} from "./baseApi";
+import { baseApi, ApiResponse, optimisticUpdate } from "./baseApi";
 
 // Types for complaint operations
 export interface Complaint {
@@ -46,6 +41,17 @@ export interface Complaint {
   escalationLevel: number;
   slaStatus: "ontime" | "warning" | "overdue" | "completed";
   timeElapsed: number;
+  statusLogs?: Array<{
+    id: string;
+    fromStatus?: string;
+    toStatus: string;
+    comment?: string;
+    timestamp: string;
+    user?: {
+      fullName: string;
+      role: string;
+    };
+  }>;
 }
 
 export interface CreateComplaintRequest {
@@ -64,7 +70,7 @@ export interface CreateComplaintRequest {
 export interface UpdateComplaintRequest {
   id: string;
   status?: Complaint["status"];
-  assignedTo?: string;
+  assignedToId?: string;
   remarks?: string;
   priority?: Complaint["priority"];
 }
@@ -107,7 +113,7 @@ export const complaintsApi = baseApi.injectEndpoints({
           });
           return `/complaints?${searchParams.toString()}`;
         },
-        transformResponse: transformResponse<Complaint[]>,
+        // Let RTK Query handle response naturally
         providesTags: (result) =>
           result?.data && Array.isArray(result.data)
             ? [
@@ -124,7 +130,7 @@ export const complaintsApi = baseApi.injectEndpoints({
     // Get single complaint
     getComplaint: builder.query<ApiResponse<Complaint>, string>({
       query: (id) => `/complaints/${id}`,
-      transformResponse: transformResponse<Complaint>,
+      // Let RTK Query handle response naturally
       providesTags: (result, error, id) => [{ type: "Complaint", id }],
     }),
 
@@ -138,7 +144,7 @@ export const complaintsApi = baseApi.injectEndpoints({
         method: "POST",
         body: data,
       }),
-      transformResponse: transformResponse<Complaint>,
+      // Let RTK Query handle response naturally
       invalidatesTags: [{ type: "Complaint", id: "LIST" }],
       // Optimistic update for immediate feedback
       onQueryStarted: async (newComplaint, { dispatch, queryFulfilled }) => {
@@ -168,7 +174,7 @@ export const complaintsApi = baseApi.injectEndpoints({
         method: "PUT",
         body: data,
       }),
-      transformResponse: transformResponse<Complaint>,
+      // Let RTK Query handle response naturally
       invalidatesTags: (result, error, { id }) => [
         { type: "Complaint", id },
         { type: "Complaint", id: "LIST" },
@@ -215,7 +221,7 @@ export const complaintsApi = baseApi.injectEndpoints({
         method: "PUT",
         body: { assignedTo, remarks },
       }),
-      transformResponse: transformResponse<Complaint>,
+      // Let RTK Query handle response naturally
       invalidatesTags: (result, error, { id }) => [
         { type: "Complaint", id },
         { type: "Complaint", id: "LIST" },
@@ -232,7 +238,7 @@ export const complaintsApi = baseApi.injectEndpoints({
         method: "PUT",
         body: { status, remarks },
       }),
-      transformResponse: transformResponse<Complaint>,
+      // Let RTK Query handle response naturally
       invalidatesTags: (result, error, { id }) => [
         { type: "Complaint", id },
         { type: "Complaint", id: "LIST" },
@@ -249,7 +255,7 @@ export const complaintsApi = baseApi.injectEndpoints({
         method: "POST",
         body: { citizenFeedback: feedback, rating },
       }),
-      transformResponse: transformResponse<Complaint>,
+      // Let RTK Query handle response naturally
       invalidatesTags: (result, error, { id }) => [
         { type: "Complaint", id },
         { type: "Complaint", id: "LIST" },
@@ -258,7 +264,13 @@ export const complaintsApi = baseApi.injectEndpoints({
 
     // Upload complaint attachments
     uploadComplaintAttachment: builder.mutation<
-      ApiResponse<{ fileName: string; url: string; id: string; originalName: string; size: number }>,
+      ApiResponse<{
+        fileName: string;
+        url: string;
+        id: string;
+        originalName: string;
+        size: number;
+      }>,
       { complaintId: string; file: File }
     >({
       query: ({ complaintId, file }) => {
@@ -271,8 +283,10 @@ export const complaintsApi = baseApi.injectEndpoints({
           formData: true,
         };
       },
-      transformResponse: transformResponse,
-      invalidatesTags: (result, error, { complaintId }) => [{ type: "Complaint", id: complaintId }],
+      // Let RTK Query handle response naturally
+      invalidatesTags: (result, error, { complaintId }) => [
+        { type: "Complaint", id: complaintId },
+      ],
     }),
 
     // Get complaint types
@@ -283,7 +297,7 @@ export const complaintsApi = baseApi.injectEndpoints({
       void
     >({
       query: () => "/complaint-types",
-      transformResponse: transformResponse,
+      // Let RTK Query handle response naturally
       providesTags: ["ComplaintType"],
     }),
 
@@ -306,8 +320,50 @@ export const complaintsApi = baseApi.injectEndpoints({
         });
         return `/complaints/stats?${searchParams.toString()}`;
       },
-      transformResponse: transformResponse,
+      // Let RTK Query handle response naturally
       providesTags: ["Analytics"],
+    }),
+
+    // Get ward users for assignment (role-based access)
+    getWardUsers: builder.query<
+      ApiResponse<{
+        users: Array<{
+          id: string;
+          fullName: string;
+          email: string;
+          role: string;
+          wardId?: string;
+          department?: string;
+          isActive: boolean;
+          ward?: {
+            id: string;
+            name: string;
+          };
+        }>;
+        pagination: {
+          page: number;
+          limit: number;
+          total: number;
+          pages: number;
+        };
+      }>,
+      {
+        page?: number;
+        limit?: number;
+        role?: string;
+        status?: string;
+      }
+    >({
+      query: (params = {}) => {
+        const searchParams = new URLSearchParams();
+        Object.entries(params).forEach(([key, value]) => {
+          if (value !== undefined && value !== "") {
+            searchParams.append(key, value.toString());
+          }
+        });
+        return `/complaints/ward-users?${searchParams.toString()}`;
+      },
+      providesTags: ["User"],
     }),
   }),
 });
@@ -324,4 +380,5 @@ export const {
   useUploadComplaintAttachmentMutation,
   useGetComplaintTypesQuery,
   useGetComplaintStatisticsQuery,
+  useGetWardUsersQuery,
 } = complaintsApi;

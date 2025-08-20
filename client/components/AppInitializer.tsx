@@ -1,20 +1,20 @@
 import React, { useEffect, useState } from "react";
 import { useAppDispatch, useAppSelector } from "../store/hooks";
+import { useSystemConfig } from "../contexts/SystemConfigContext";
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { setCredentials, clearCredentials } from "../store/slices/authSlice";
 import { initializeLanguage } from "../store/slices/languageSlice";
 import { initializeTheme, setOnlineStatus } from "../store/slices/uiSlice";
 import { useGetCurrentUserQuery } from "../store/api/authApi";
 
-// Error logging utility
+// Error logging utility - avoid accessing error.data to prevent response body issues
 const logAuthError = (context: string, error: any) => {
   console.group(`🔐 Auth Error - ${context}`);
   console.error("Error:", error);
-  if (error?.data) {
-    console.error("Error Data:", error.data);
-  }
   if (error?.status) {
     console.error("HTTP Status:", error.status);
   }
+  // Note: Avoiding error.data access to prevent "Response body is already used" errors
   console.groupEnd();
 };
 
@@ -25,6 +25,10 @@ interface AppInitializerProps {
 const AppInitializer: React.FC<AppInitializerProps> = ({ children }) => {
   const dispatch = useAppDispatch();
   const [isInitialized, setIsInitialized] = useState(false);
+  const { appName } = useSystemConfig();
+
+  // Set document title
+  useDocumentTitle();
 
   // Get token from localStorage and check Redux state
   const token = localStorage.getItem("token");
@@ -77,20 +81,16 @@ const AppInitializer: React.FC<AppInitializerProps> = ({ children }) => {
           } else if (userError) {
             // Handle different types of auth errors
             const error = userError as any;
-            const errorData = "data" in error ? error.data : null;
 
             logAuthError("User Query Failed", error);
 
-            // Handle specific error types
-            const errorCode = errorData?.data?.code;
+            // Handle specific error types - avoid accessing error.data
             const isServerError = error.status >= 500;
-            const isDatabaseError =
-              errorCode === "DATABASE_READONLY" ||
-              errorCode === "DATABASE_ERROR";
+            const isUnauthorized = error.status === 401;
 
-            if (isDatabaseError || isServerError) {
+            if (isServerError) {
               console.warn(
-                "🚨 Server/Database issue detected - not clearing user credentials",
+                "🚨 Server issue detected - not clearing user credentials",
               );
               console.log(
                 "User can continue with cached data until server recovers",
@@ -102,8 +102,10 @@ const AppInitializer: React.FC<AppInitializerProps> = ({ children }) => {
               return;
             }
 
-            // Clear invalid credentials for client errors
-            dispatch(clearCredentials());
+            // Clear invalid credentials for unauthorized or other client errors
+            if (isUnauthorized || error.status < 500) {
+              dispatch(clearCredentials());
+            }
             localStorage.removeItem("token");
 
             // Log specific error types for debugging
@@ -208,7 +210,7 @@ const AppInitializer: React.FC<AppInitializerProps> = ({ children }) => {
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
           <h2 className="text-xl font-semibold text-gray-700 mb-2">
-            Cochin Smart City
+            {appName}
           </h2>
           <p className="text-gray-600">Initializing application...</p>
         </div>

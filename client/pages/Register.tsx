@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAppDispatch, useAppSelector } from "../store/hooks";
+import { useSystemConfig } from "../contexts/SystemConfigContext";
 import {
   selectAuth,
   resetRegistrationState,
@@ -11,6 +12,7 @@ import { useToast } from "../hooks/use-toast";
 import { useApiErrorHandler } from "../hooks/useApiErrorHandler";
 import { useRegisterMutation } from "../store/api/authApi";
 import { useOtpFlow } from "../contexts/OtpContext";
+import { useGetWardsQuery } from "../store/api/guestApi";
 import {
   Card,
   CardContent,
@@ -20,6 +22,7 @@ import {
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
+import { Logo } from "../components/ui/logo";
 import {
   Select,
   SelectContent,
@@ -36,9 +39,18 @@ const Register: React.FC = () => {
   const { openOtpFlow } = useOtpFlow();
   const { handleApiError } = useApiErrorHandler();
   const { isAuthenticated, user } = useAppSelector(selectAuth);
+  const { appName, appLogoUrl, appLogoSize } = useSystemConfig();
 
   // API hooks
   const [registerUser, { isLoading: isRegistering }] = useRegisterMutation();
+  const {
+    data: wardsResponse,
+    isLoading: wardsLoading,
+    error: wardsError,
+  } = useGetWardsQuery();
+  const wardsData = Array.isArray(wardsResponse?.data)
+    ? wardsResponse.data
+    : [];
 
   // Clear registration state on component mount
   useEffect(() => {
@@ -63,13 +75,11 @@ const Register: React.FC = () => {
     wardId: "",
   });
 
-  const wards = [
-    { value: "ward-1", label: "Ward 1 - Central Zone" },
-    { value: "ward-2", label: "Ward 2 - North Zone" },
-    { value: "ward-3", label: "Ward 3 - South Zone" },
-    { value: "ward-4", label: "Ward 4 - East Zone" },
-    { value: "ward-5", label: "Ward 5 - West Zone" },
-  ];
+  // Transform wards data for the form
+  const wards = wardsData.map((ward) => ({
+    value: ward.id,
+    label: ward.name,
+  }));
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -196,11 +206,17 @@ const Register: React.FC = () => {
         {/* Header */}
         <div className="text-center mb-8">
           <div className="flex items-center justify-center mb-4">
-            <Shield className="h-12 w-12 text-blue-600 mr-3" />
+            <Logo
+              logoUrl={appLogoUrl}
+              appName={appName}
+              size={appLogoSize}
+              context="auth"
+              fallbackIcon={Shield}
+              showText={false}
+              className="mr-3"
+            />
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">
-                Cochin Smart City
-              </h1>
+              <h1 className="text-2xl font-bold text-gray-900">{appName}</h1>
               <p className="text-gray-600">Create Your Account</p>
             </div>
           </div>
@@ -281,11 +297,21 @@ const Register: React.FC = () => {
                     <SelectValue placeholder="Select your ward" />
                   </SelectTrigger>
                   <SelectContent>
-                    {wards.map((ward) => (
-                      <SelectItem key={ward.value} value={ward.value}>
-                        {ward.label}
+                    {wardsLoading ? (
+                      <SelectItem value="loading" disabled>
+                        Loading wards...
                       </SelectItem>
-                    ))}
+                    ) : wardsError ? (
+                      <SelectItem value="error" disabled>
+                        Error loading wards
+                      </SelectItem>
+                    ) : (
+                      wards.map((ward) => (
+                        <SelectItem key={ward.value} value={ward.value}>
+                          {ward.label}
+                        </SelectItem>
+                      ))
+                    )}
                   </SelectContent>
                 </Select>
               </div>

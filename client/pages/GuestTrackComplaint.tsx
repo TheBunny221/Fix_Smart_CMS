@@ -3,6 +3,10 @@ import { Link } from "react-router-dom";
 import { useAppDispatch } from "../store/hooks";
 import { trackGuestComplaint } from "../store/slices/guestSlice";
 import {
+  useRequestComplaintOtpMutation,
+  useVerifyComplaintOtpMutation,
+} from "../store/api/guestApi";
+import {
   Card,
   CardContent,
   CardHeader,
@@ -12,6 +16,7 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Badge } from "../components/ui/badge";
+import { Alert, AlertDescription } from "../components/ui/alert";
 import {
   Search,
   FileText,
@@ -21,7 +26,11 @@ import {
   CheckCircle,
   AlertCircle,
   Shield,
+  Lock,
 } from "lucide-react";
+import QuickComplaintModal from "../components/QuickComplaintModal";
+import OtpVerificationModal from "../components/OtpVerificationModal";
+import ComplaintDetailsModal from "../components/ComplaintDetailsModal";
 
 const GuestTrackComplaint: React.FC = () => {
   const dispatch = useAppDispatch();
@@ -29,6 +38,20 @@ const GuestTrackComplaint: React.FC = () => {
   const [trackingResult, setTrackingResult] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [isQuickFormOpen, setIsQuickFormOpen] = useState(false);
+
+  // OTP Verification States
+  const [showOtpModal, setShowOtpModal] = useState(false);
+  const [showComplaintDetails, setShowComplaintDetails] = useState(false);
+  const [maskedEmail, setMaskedEmail] = useState("");
+  const [verifiedComplaint, setVerifiedComplaint] = useState<any>(null);
+  const [verifiedUser, setVerifiedUser] = useState<any>(null);
+
+  // API Hooks
+  const [requestOtp, { isLoading: isRequestingOtp }] =
+    useRequestComplaintOtpMutation();
+  const [verifyOtp, { isLoading: isVerifyingOtp, error: verifyError }] =
+    useVerifyComplaintOtpMutation();
 
   const handleTrack = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -36,17 +59,52 @@ const GuestTrackComplaint: React.FC = () => {
     setError("");
 
     try {
-      const result = await dispatch(
-        trackGuestComplaint({
-          complaintId: complaintId.trim(),
-        }),
-      ).unwrap();
-      setTrackingResult(result);
-    } catch (err) {
-      setError("Complaint not found. Please check your complaint ID.");
+      // Request OTP for the complaint
+      const result = await requestOtp({
+        complaintId: complaintId.trim(),
+      }).unwrap();
+
+      if (result.success) {
+        setMaskedEmail(result.data.email);
+        setShowOtpModal(true);
+      }
+    } catch (err: any) {
+      setError(
+        err?.data?.message ||
+          "Complaint not found. Please check your complaint ID.",
+      );
       setTrackingResult(null);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleOtpVerified = async (data: {
+    complaintId: string;
+    otpCode: string;
+  }) => {
+    try {
+      const result = await verifyOtp(data).unwrap();
+
+      if (result.success) {
+        setVerifiedComplaint(result.data.complaint);
+        setVerifiedUser(result.data.user);
+        setShowOtpModal(false);
+        setShowComplaintDetails(true);
+      }
+    } catch (err: any) {
+      // Error will be handled by the OTP modal
+      console.error("OTP verification failed:", err);
+    }
+  };
+
+  const handleResendOtp = async () => {
+    try {
+      await requestOtp({
+        complaintId: complaintId.trim(),
+      }).unwrap();
+    } catch (err) {
+      console.error("Failed to resend OTP:", err);
     }
   };
 
@@ -95,7 +153,7 @@ const GuestTrackComplaint: React.FC = () => {
                 Track Your Complaint
               </h1>
               <p className="text-gray-600">
-                Enter your complaint ID to check status
+                Secure complaint tracking with email verification
               </p>
             </div>
           </div>
@@ -104,9 +162,21 @@ const GuestTrackComplaint: React.FC = () => {
         {/* Search Form */}
         <Card className="mb-8">
           <CardHeader>
-            <CardTitle className="text-center">Complaint Tracking</CardTitle>
+            <CardTitle className="text-center flex items-center justify-center space-x-2">
+              <Lock className="h-5 w-5 text-blue-600" />
+              <span>Secure Complaint Tracking</span>
+            </CardTitle>
           </CardHeader>
           <CardContent>
+            {/* Security Info */}
+            <Alert className="mb-4">
+              <Lock className="h-4 w-4" />
+              <AlertDescription>
+                For your security, we'll send a verification code to your
+                registered email before showing complaint details.
+              </AlertDescription>
+            </Alert>
+
             <form onSubmit={handleTrack} className="space-y-4">
               <div className="flex flex-col sm:flex-row gap-4">
                 <div className="flex-1">
@@ -127,15 +197,20 @@ const GuestTrackComplaint: React.FC = () => {
                 <div className="flex items-end">
                   <Button
                     type="submit"
-                    disabled={isLoading}
+                    disabled={isLoading || isRequestingOtp}
                     className="w-full sm:w-auto"
                   >
-                    {isLoading ? "Searching..." : "Track Complaint"}
+                    {isLoading || isRequestingOtp
+                      ? "Verifying..."
+                      : "Verify & Track"}
                   </Button>
                 </div>
               </div>
               {error && (
-                <div className="text-red-600 text-sm mt-2">{error}</div>
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
               )}
             </form>
           </CardContent>
@@ -417,9 +492,12 @@ const GuestTrackComplaint: React.FC = () => {
                 <p className="text-sm text-gray-600 mb-3">
                   Have another issue? Submit a new complaint.
                 </p>
-                <Link to="/guest/complaint">
-                  <Button variant="outline">New Complaint</Button>
-                </Link>
+                <Button
+                  variant="outline"
+                  onClick={() => setIsQuickFormOpen(true)}
+                >
+                  New Complaint
+                </Button>
               </div>
               <div>
                 <h3 className="font-medium mb-2">Contact Support</h3>
@@ -432,6 +510,37 @@ const GuestTrackComplaint: React.FC = () => {
           </CardContent>
         </Card>
       </div>
+
+      {/* Quick Complaint Modal */}
+      <QuickComplaintModal
+        isOpen={isQuickFormOpen}
+        onClose={() => setIsQuickFormOpen(false)}
+        onSuccess={(complaintId) => {
+          // Could automatically set the tracking ID to show the new complaint
+          setComplaintId(complaintId);
+        }}
+      />
+
+      {/* OTP Verification Modal */}
+      <OtpVerificationModal
+        isOpen={showOtpModal}
+        onClose={() => setShowOtpModal(false)}
+        onVerified={handleOtpVerified}
+        complaintId={complaintId}
+        maskedEmail={maskedEmail}
+        isVerifying={isVerifyingOtp}
+        error={verifyError?.data?.message || null}
+        onResendOtp={handleResendOtp}
+        isResending={isRequestingOtp}
+      />
+
+      {/* Complaint Details Modal */}
+      <ComplaintDetailsModal
+        isOpen={showComplaintDetails}
+        onClose={() => setShowComplaintDetails(false)}
+        complaint={verifiedComplaint}
+        user={verifiedUser}
+      />
     </div>
   );
 };

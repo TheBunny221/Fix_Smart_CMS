@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   Card,
   CardContent,
@@ -8,6 +9,16 @@ import {
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Badge } from "../components/ui/badge";
+import { Label } from "../components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "../components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -36,44 +47,132 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import {
-  useGetAllUsersQuery,
+  useLazyGetAllUsersQuery,
   useGetUserStatsQuery,
   useActivateUserMutation,
   useDeactivateUserMutation,
   useDeleteUserMutation,
+  useCreateUserMutation,
+  useUpdateUserMutation,
+  type AdminUser,
+  type CreateUserRequest,
+  type UpdateUserRequest,
 } from "../store/api/adminApi";
+import { useGetWardsQuery } from "../store/api/guestApi";
 import { toast } from "../components/ui/use-toast";
 
 const AdminUsers: React.FC = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [searchTerm, setSearchTerm] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [page, setPage] = useState(1);
   const [limit] = useState(10);
 
-  // API queries
-  const {
-    data: usersResponse,
-    isLoading: isLoadingUsers,
-    error: usersError,
-    refetch: refetchUsers,
-  } = useGetAllUsersQuery({
-    page,
-    limit,
-    role: roleFilter !== "all" ? roleFilter : undefined,
-    status: statusFilter,
+  // Dialog states
+  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [editingUser, setEditingUser] = useState<AdminUser | null>(null);
+
+  // Form states
+  const [formData, setFormData] = useState<CreateUserRequest>({
+    fullName: "",
+    email: "",
+    phoneNumber: "",
+    role: "CITIZEN",
+    wardId: "",
+    department: "",
   });
 
+  // Initialize filters from URL parameters
+  useEffect(() => {
+    const roleParam = searchParams.get("role");
+    const statusParam = searchParams.get("status");
+
+    if (roleParam) {
+      setRoleFilter(roleParam);
+    }
+    if (statusParam) {
+      setStatusFilter(statusParam);
+    }
+  }, [searchParams]);
+
+  // Check authentication state
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    setIsAuthenticated(!!token);
+  }, []);
+
+  // API queries - use lazy for users to prevent AbortErrors
+  const [
+    getAllUsers,
+    { data: usersResponse, isLoading: isLoadingUsers, error: usersError },
+  ] = useLazyGetAllUsersQuery();
+
+  // Use regular hook with skip for stats
   const {
     data: statsResponse,
     isLoading: isLoadingStats,
     error: statsError,
-  } = useGetUserStatsQuery();
+  } = useGetUserStatsQuery(undefined, {
+    skip: !isAuthenticated,
+  });
+
+  // Trigger users query when authentication and parameters are ready
+  useEffect(() => {
+    if (isAuthenticated) {
+      try {
+        getAllUsers({
+          page,
+          limit,
+          role: roleFilter !== "all" ? roleFilter : undefined,
+          status: statusFilter,
+        });
+      } catch (error) {
+        // Silently handle any errors from lazy query in Strict Mode
+        console.debug(
+          "Lazy query error (likely from React Strict Mode):",
+          error,
+        );
+      }
+    }
+  }, [page, limit, roleFilter, statusFilter, isAuthenticated, getAllUsers]);
+
+  // Manual refetch function
+  const refetchUsers = () => {
+    if (isAuthenticated) {
+      try {
+        getAllUsers({
+          page,
+          limit,
+          role: roleFilter !== "all" ? roleFilter : undefined,
+          status: statusFilter,
+        });
+      } catch (error) {
+        // Silently handle any errors from lazy query
+        console.debug("Lazy query refetch error:", error);
+      }
+    }
+  };
+
+  // Fetch wards for form dropdowns using RTK Query
+  const {
+    data: wardsResponse,
+    isLoading: isLoadingWards,
+    error: wardsError,
+  } = useGetWardsQuery();
+
+  // Extract wards data from the API response
+  const wards = wardsResponse?.data || [];
 
   // Mutations
   const [activateUser] = useActivateUserMutation();
   const [deactivateUser] = useDeactivateUserMutation();
   const [deleteUser] = useDeleteUserMutation();
+  const [createUser, { isLoading: isCreating }] = useCreateUserMutation();
+  const [updateUser, { isLoading: isUpdating }] = useUpdateUserMutation();
 
   const users = usersResponse?.data?.users || [];
   const pagination = usersResponse?.data?.pagination;
@@ -167,6 +266,107 @@ const AdminUsers: React.FC = () => {
     setRoleFilter("all");
     setStatusFilter("all");
     setPage(1);
+    // Update URL parameters
+    setSearchParams({});
+  };
+
+  // Handle filter changes and update URL
+  const handleRoleFilterChange = (role: string) => {
+    setRoleFilter(role);
+    const newParams = new URLSearchParams(searchParams);
+    if (role !== "all") {
+      newParams.set("role", role);
+    } else {
+      newParams.delete("role");
+    }
+    setSearchParams(newParams);
+  };
+
+  const handleStatusFilterChange = (status: string) => {
+    setStatusFilter(status);
+    const newParams = new URLSearchParams(searchParams);
+    if (status !== "all") {
+      newParams.set("status", status);
+    } else {
+      newParams.delete("status");
+    }
+    setSearchParams(newParams);
+  };
+
+  // Form handlers
+  const handleOpenAddDialog = () => {
+    setFormData({
+      fullName: "",
+      email: "",
+      phoneNumber: "",
+      role: "CITIZEN",
+      wardId: "",
+      department: "",
+    });
+    setIsAddDialogOpen(true);
+  };
+
+  const handleOpenEditDialog = (user: AdminUser) => {
+    setEditingUser(user);
+    setFormData({
+      fullName: user.fullName,
+      email: user.email,
+      phoneNumber: user.phoneNumber || "",
+      role: user.role,
+      wardId: user.wardId || "",
+      department: user.department || "",
+    });
+    setIsEditDialogOpen(true);
+  };
+
+  const handleCloseDialogs = () => {
+    setIsAddDialogOpen(false);
+    setIsEditDialogOpen(false);
+    setEditingUser(null);
+    setFormData({
+      fullName: "",
+      email: "",
+      phoneNumber: "",
+      role: "CITIZEN",
+      wardId: "",
+      department: "",
+    });
+  };
+
+  const handleFormSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    try {
+      if (editingUser) {
+        // Update user
+        await updateUser({
+          id: editingUser.id,
+          data: formData,
+        }).unwrap();
+        toast({
+          title: "Success",
+          description: "User updated successfully",
+        });
+      } else {
+        // Create user
+        await createUser(formData).unwrap();
+        toast({
+          title: "Success",
+          description: "User created successfully",
+        });
+      }
+
+      handleCloseDialogs();
+      refetchUsers();
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description:
+          error?.data?.message ||
+          `Failed to ${editingUser ? "update" : "create"} user`,
+        variant: "destructive",
+      });
+    }
   };
 
   // Filter users locally based on search term
@@ -204,7 +404,7 @@ const AdminUsers: React.FC = () => {
           <h1 className="text-3xl font-bold text-gray-900">User Management</h1>
           <p className="text-gray-600">Manage all users in the system</p>
         </div>
-        <Button>
+        <Button onClick={handleOpenAddDialog}>
           <Plus className="h-4 w-4 mr-2" />
           Add New User
         </Button>
@@ -321,7 +521,7 @@ const AdminUsers: React.FC = () => {
                 className="pl-10"
               />
             </div>
-            <Select value={roleFilter} onValueChange={setRoleFilter}>
+            <Select value={roleFilter} onValueChange={handleRoleFilterChange}>
               <SelectTrigger>
                 <SelectValue placeholder="Filter by role" />
               </SelectTrigger>
@@ -335,7 +535,10 @@ const AdminUsers: React.FC = () => {
                 <SelectItem value="ADMINISTRATOR">Administrators</SelectItem>
               </SelectContent>
             </Select>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <Select
+              value={statusFilter}
+              onValueChange={handleStatusFilterChange}
+            >
               <SelectTrigger>
                 <SelectValue placeholder="Filter by status" />
               </SelectTrigger>
@@ -426,7 +629,11 @@ const AdminUsers: React.FC = () => {
                     </TableCell>
                     <TableCell>
                       <div className="flex space-x-2">
-                        <Button size="sm" variant="outline">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleOpenEditDialog(user)}
+                        >
                           <Edit className="h-3 w-3" />
                         </Button>
                         {user.isActive ? (
@@ -514,6 +721,254 @@ const AdminUsers: React.FC = () => {
           </div>
         </CardContent>
       </Card>
+
+      {/* Add User Dialog */}
+      <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add New User</DialogTitle>
+            <DialogDescription>
+              Create a new user account in the system.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleFormSubmit} className="space-y-4">
+            <div>
+              <Label htmlFor="fullName">Full Name</Label>
+              <Input
+                id="fullName"
+                value={formData.fullName}
+                onChange={(e) =>
+                  setFormData({ ...formData, fullName: e.target.value })
+                }
+                placeholder="Enter full name"
+                required
+              />
+            </div>
+            <div>
+              <Label htmlFor="email">Email</Label>
+              <Input
+                id="email"
+                type="email"
+                value={formData.email}
+                onChange={(e) =>
+                  setFormData({ ...formData, email: e.target.value })
+                }
+                placeholder="Enter email address"
+                required
+              />
+            </div>
+            <div>
+              <Label htmlFor="phoneNumber">Phone Number</Label>
+              <Input
+                id="phoneNumber"
+                value={formData.phoneNumber}
+                onChange={(e) =>
+                  setFormData({ ...formData, phoneNumber: e.target.value })
+                }
+                placeholder="Enter phone number"
+              />
+            </div>
+            <div>
+              <Label htmlFor="role">Role</Label>
+              <Select
+                value={formData.role}
+                onValueChange={(value) =>
+                  setFormData({ ...formData, role: value })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select role" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="CITIZEN">Citizen</SelectItem>
+                  <SelectItem value="WARD_OFFICER">Ward Officer</SelectItem>
+                  <SelectItem value="MAINTENANCE_TEAM">
+                    Maintenance Team
+                  </SelectItem>
+                  <SelectItem value="ADMINISTRATOR">Administrator</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="ward">Ward</Label>
+              <Select
+                value={formData.wardId || "none"}
+                onValueChange={(value) =>
+                  setFormData({
+                    ...formData,
+                    wardId: value === "none" ? "" : value,
+                  })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select ward (optional)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No ward assigned</SelectItem>
+                  {wards.map((ward) => (
+                    <SelectItem key={ward.id} value={ward.id}>
+                      {ward.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="department">Department</Label>
+              <Input
+                id="department"
+                value={formData.department}
+                onChange={(e) =>
+                  setFormData({ ...formData, department: e.target.value })
+                }
+                placeholder="Enter department (optional)"
+              />
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleCloseDialogs}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={isCreating}>
+                {isCreating ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Creating...
+                  </>
+                ) : (
+                  "Create User"
+                )}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit User Dialog */}
+      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit User</DialogTitle>
+            <DialogDescription>Update user information.</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleFormSubmit} className="space-y-4">
+            <div>
+              <Label htmlFor="editFullName">Full Name</Label>
+              <Input
+                id="editFullName"
+                value={formData.fullName}
+                onChange={(e) =>
+                  setFormData({ ...formData, fullName: e.target.value })
+                }
+                placeholder="Enter full name"
+                required
+              />
+            </div>
+            <div>
+              <Label htmlFor="editEmail">Email</Label>
+              <Input
+                id="editEmail"
+                type="email"
+                value={formData.email}
+                onChange={(e) =>
+                  setFormData({ ...formData, email: e.target.value })
+                }
+                placeholder="Enter email address"
+                required
+              />
+            </div>
+            <div>
+              <Label htmlFor="editPhoneNumber">Phone Number</Label>
+              <Input
+                id="editPhoneNumber"
+                value={formData.phoneNumber}
+                onChange={(e) =>
+                  setFormData({ ...formData, phoneNumber: e.target.value })
+                }
+                placeholder="Enter phone number"
+              />
+            </div>
+            <div>
+              <Label htmlFor="editRole">Role</Label>
+              <Select
+                value={formData.role}
+                onValueChange={(value) =>
+                  setFormData({ ...formData, role: value })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select role" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="CITIZEN">Citizen</SelectItem>
+                  <SelectItem value="WARD_OFFICER">Ward Officer</SelectItem>
+                  <SelectItem value="MAINTENANCE_TEAM">
+                    Maintenance Team
+                  </SelectItem>
+                  <SelectItem value="ADMINISTRATOR">Administrator</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="editWard">Ward</Label>
+              <Select
+                value={formData.wardId || "none"}
+                onValueChange={(value) =>
+                  setFormData({
+                    ...formData,
+                    wardId: value === "none" ? "" : value,
+                  })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select ward (optional)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No ward assigned</SelectItem>
+                  {wards.map((ward) => (
+                    <SelectItem key={ward.id} value={ward.id}>
+                      {ward.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="editDepartment">Department</Label>
+              <Input
+                id="editDepartment"
+                value={formData.department}
+                onChange={(e) =>
+                  setFormData({ ...formData, department: e.target.value })
+                }
+                placeholder="Enter department (optional)"
+              />
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleCloseDialogs}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={isUpdating}>
+                {isUpdating ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Updating...
+                  </>
+                ) : (
+                  "Update User"
+                )}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

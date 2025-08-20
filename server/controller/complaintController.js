@@ -1,6 +1,7 @@
 import { getPrisma } from "../db/connection.js";
 import { asyncHandler } from "../middleware/errorHandler.js";
 import { sendEmail } from "../utils/emailService.js";
+import { verifyCaptchaForComplaint } from "./captchaController.js";
 
 const prisma = getPrisma();
 
@@ -22,14 +23,66 @@ const calculateSLAStatus = (submittedOn, deadline, status) => {
   }
 };
 
-// Helper function to generate complaint ID
-const generateComplaintId = () => {
-  const prefix = "CSC";
-  const timestamp = Date.now().toString().slice(-6);
-  const random = Math.floor(Math.random() * 1000)
-    .toString()
-    .padStart(3, "0");
-  return `${prefix}${timestamp}${random}`;
+// Helper function to generate complaint ID with configurable prefix and sequential numbering
+const generateComplaintId = async () => {
+  try {
+    // Get complaint ID configuration from system settings
+    const config = await prisma.systemConfig.findMany({
+      where: {
+        key: {
+          in: [
+            "COMPLAINT_ID_PREFIX",
+            "COMPLAINT_ID_START_NUMBER",
+            "COMPLAINT_ID_LENGTH",
+          ],
+        },
+      },
+    });
+
+    const settings = config.reduce((acc, setting) => {
+      acc[setting.key] = setting.value;
+      return acc;
+    }, {});
+
+    const prefix = settings.COMPLAINT_ID_PREFIX || "KSC";
+    const startNumber = parseInt(settings.COMPLAINT_ID_START_NUMBER || "1");
+    const idLength = parseInt(settings.COMPLAINT_ID_LENGTH || "4");
+
+    // Get the last complaint ID to determine next number
+    const lastComplaint = await prisma.complaint.findFirst({
+      where: {
+        complaintId: {
+          startsWith: prefix,
+        },
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+      select: {
+        complaintId: true,
+      },
+    });
+
+    let nextNumber = startNumber;
+    if (lastComplaint && lastComplaint.complaintId) {
+      // Extract number from last complaint ID
+      const lastNumber = parseInt(
+        lastComplaint.complaintId.replace(prefix, ""),
+      );
+      if (!isNaN(lastNumber)) {
+        nextNumber = lastNumber + 1;
+      }
+    }
+
+    // Format the number with leading zeros
+    const formattedNumber = nextNumber.toString().padStart(idLength, "0");
+    return `${prefix}${formattedNumber}`;
+  } catch (error) {
+    console.error("Error generating complaint ID:", error);
+    // Fallback to default format
+    const timestamp = Date.now().toString().slice(-6);
+    return `KSC${timestamp}`;
+  }
 };
 
 // @desc    Create a new complaint
@@ -41,6 +94,7 @@ export const createComplaint = asyncHandler(async (req, res) => {
     description,
     type,
     priority,
+    slaHours,
     wardId,
     subZoneId,
     area,
@@ -51,27 +105,75 @@ export const createComplaint = asyncHandler(async (req, res) => {
     contactEmail,
     contactPhone,
     isAnonymous,
+    captchaId,
+    captchaText,
   } = req.body;
 
-  // Set deadline based on priority (in hours)
-  const priorityHours = {
-    LOW: 72,
-    MEDIUM: 48,
-    HIGH: 24,
-    CRITICAL: 8,
-  };
+  // Verify CAPTCHA for all complaint submissions
+  try {
+    await verifyCaptchaForComplaint(captchaId, captchaText);
+  } catch (error) {
+    return res.status(400).json({
+      success: false,
+      message: error.message || "CAPTCHA verification failed",
+    });
+  }
 
-  const deadline = new Date(
-    Date.now() + priorityHours[priority || "MEDIUM"] * 60 * 60 * 1000,
-  );
+  // Use provided slaHours or fallback to priority-based hours
+  let deadlineHours = slaHours;
+  if (!deadlineHours) {
+    const priorityHours = {
+      LOW: 72,
+      MEDIUM: 48,
+      HIGH: 24,
+      CRITICAL: 8,
+    };
+    deadlineHours = priorityHours[priority || "MEDIUM"];
+  }
+
+  const deadline = new Date(Date.now() + deadlineHours * 60 * 60 * 1000);
+
+  // Generate unique complaint ID
+  const complaintId = await generateComplaintId();
+
+  // Check auto-assignment setting
+  const autoAssignSetting = await prisma.systemConfig.findUnique({
+    where: { key: "AUTO_ASSIGN_COMPLAINTS" },
+  });
+
+  const isAutoAssignEnabled = autoAssignSetting?.value === "true";
+  let assignedToId = null;
+  let initialStatus = "REGISTERED";
+
+  // Auto-assign to ward officer if enabled
+  if (isAutoAssignEnabled && wardId) {
+    // Find an available ward officer for this ward
+    const wardOfficer = await prisma.user.findFirst({
+      where: {
+        role: "WARD_OFFICER",
+        wardId: wardId,
+        isActive: true,
+      },
+      orderBy: {
+        // Optionally order by workload or other criteria
+        createdAt: "asc", // For now, just assign to the oldest officer
+      },
+    });
+
+    if (wardOfficer) {
+      assignedToId = wardOfficer.id;
+      initialStatus = "ASSIGNED";
+    }
+  }
 
   const complaint = await prisma.complaint.create({
     data: {
+      complaintId,
       title: title || `${type} complaint`,
       description,
       type,
       priority: priority || "MEDIUM",
-      status: "REGISTERED",
+      status: initialStatus,
       slaStatus: "ON_TIME",
       wardId,
       subZoneId,
@@ -84,6 +186,8 @@ export const createComplaint = asyncHandler(async (req, res) => {
       contactPhone: contactPhone || req.user.phoneNumber,
       isAnonymous: isAnonymous || false,
       submittedById: req.user.id,
+      assignedToId,
+      assignedOn: assignedToId ? new Date() : null,
       deadline,
     },
     include: {
@@ -97,10 +201,20 @@ export const createComplaint = asyncHandler(async (req, res) => {
           phoneNumber: true,
         },
       },
+      assignedTo: assignedToId
+        ? {
+            select: {
+              id: true,
+              fullName: true,
+              email: true,
+              role: true,
+            },
+          }
+        : false,
     },
   });
 
-  // Create status log
+  // Create status log for registration
   await prisma.statusLog.create({
     data: {
       complaintId: complaint.id,
@@ -110,25 +224,52 @@ export const createComplaint = asyncHandler(async (req, res) => {
     },
   });
 
-  // Send notification to ward officer if available
-  const wardOfficers = await prisma.user.findMany({
-    where: {
-      role: "WARD_OFFICER",
-      wardId: wardId,
-      isActive: true,
-    },
-  });
-
-  for (const officer of wardOfficers) {
-    await prisma.notification.create({
+  // Create additional status log for auto-assignment if applicable
+  if (assignedToId) {
+    await prisma.statusLog.create({
       data: {
-        userId: officer.id,
         complaintId: complaint.id,
-        type: "IN_APP",
-        title: "New Complaint Registered",
-        message: `A new ${type} complaint has been registered in your ward.`,
+        userId: assignedToId, // Use the assigned user as the one making the status change
+        fromStatus: "REGISTERED",
+        toStatus: "ASSIGNED",
+        comment: "Auto-assigned to ward officer",
       },
     });
+  }
+
+  // Send notifications
+  if (assignedToId) {
+    // Send notification to the assigned ward officer
+    await prisma.notification.create({
+      data: {
+        userId: assignedToId,
+        complaintId: complaint.id,
+        type: "IN_APP",
+        title: "New Complaint Assigned",
+        message: `A new ${type} complaint has been auto-assigned to you in ${complaint.ward?.name || "your ward"}.`,
+      },
+    });
+  } else {
+    // Send notification to all ward officers if not auto-assigned
+    const wardOfficers = await prisma.user.findMany({
+      where: {
+        role: "WARD_OFFICER",
+        wardId: wardId,
+        isActive: true,
+      },
+    });
+
+    for (const officer of wardOfficers) {
+      await prisma.notification.create({
+        data: {
+          userId: officer.id,
+          complaintId: complaint.id,
+          type: "IN_APP",
+          title: "New Complaint Registered",
+          message: `A new ${type} complaint has been registered in your ward.`,
+        },
+      });
+    }
   }
 
   res.status(201).json({
@@ -169,7 +310,11 @@ export const getComplaints = asyncHandler(async (req, res) => {
   const warn = (...args) => {
     if (shouldDebug) {
       // eslint-disable-next-line no-console
-      console.warn("[gpt5][getComplaints][warn]", `req=${correlationId}`, ...args);
+      console.warn(
+        "[gpt5][getComplaints][warn]",
+        `req=${correlationId}`,
+        ...args,
+      );
     }
   };
 
@@ -231,7 +376,14 @@ export const getComplaints = asyncHandler(async (req, res) => {
 
   // --- generic filters ---
   if (status) filters.status = status;
-  if (priority) filters.priority = priority;
+  if (priority) {
+    // Handle both single values and arrays for priority
+    if (Array.isArray(priority)) {
+      filters.priority = { in: priority };
+    } else {
+      filters.priority = priority;
+    }
+  }
   if (type) filters.type = type;
 
   // --- admin-only overrides ---
@@ -248,8 +400,10 @@ export const getComplaints = asyncHandler(async (req, res) => {
   }
 
   // --- date range filter with validation ---
-  const validFrom = dateFrom && !Number.isNaN(Date.parse(dateFrom)) ? new Date(dateFrom) : null;
-  const validTo = dateTo && !Number.isNaN(Date.parse(dateTo)) ? new Date(dateTo) : null;
+  const validFrom =
+    dateFrom && !Number.isNaN(Date.parse(dateFrom)) ? new Date(dateFrom) : null;
+  const validTo =
+    dateTo && !Number.isNaN(Date.parse(dateTo)) ? new Date(dateTo) : null;
   if (dateFrom && !validFrom) warn("invalid dateFrom ignored", { dateFrom });
   if (dateTo && !validTo) warn("invalid dateTo ignored", { dateTo });
   if (validFrom || validTo) {
@@ -259,12 +413,38 @@ export const getComplaints = asyncHandler(async (req, res) => {
   }
 
   // --- search filter ---
+  // Note: SQLite doesn't support mode: "insensitive". For case-insensitive search in SQLite,
+  // we would need to use raw SQL or convert to lowercase on both sides.
+  // For now, using case-sensitive search for SQLite compatibility.
   if (search) {
+    const searchTerm = search.trim();
+    const upperSearchTerm = searchTerm.toUpperCase();
+    const lowerSearchTerm = searchTerm.toLowerCase();
+
     filters.OR = [
-      { title: { contains: search, mode: "insensitive" } },
-      { description: { contains: search, mode: "insensitive" } },
-      { area: { contains: search, mode: "insensitive" } },
+      { title: { contains: searchTerm } },
+      { title: { contains: lowerSearchTerm } },
+      { description: { contains: searchTerm } },
+      { description: { contains: lowerSearchTerm } },
+      { area: { contains: searchTerm } },
+      { area: { contains: lowerSearchTerm } },
+      { complaintId: { contains: upperSearchTerm } },
+      { complaintId: { contains: searchTerm } },
+      // Support searching by partial ID (e.g., "KSC" or "0001")
+      { id: { contains: searchTerm } },
     ];
+
+    // If search looks like a complaint ID (starts with letters), prioritize exact matches
+    if (/^[A-Za-z]/.test(searchTerm)) {
+      filters.OR.unshift({ complaintId: { equals: upperSearchTerm } });
+    }
+
+    // If search is purely numeric, it might be searching for the numeric part of complaint ID
+    if (/^\d+$/.test(searchTerm)) {
+      filters.OR.unshift({
+        complaintId: { contains: searchTerm.padStart(4, "0") },
+      });
+    }
   }
 
   dbg("final prisma.where filters", filters);
@@ -281,10 +461,20 @@ export const getComplaints = asyncHandler(async (req, res) => {
           ward: true,
           subZone: true,
           submittedBy: {
-            select: { id: true, fullName: true, email: true, phoneNumber: true },
+            select: {
+              id: true,
+              fullName: true,
+              email: true,
+              phoneNumber: true,
+            },
           },
           assignedTo: {
-            select: { id: true, fullName: true, email: true, phoneNumber: true },
+            select: {
+              id: true,
+              fullName: true,
+              email: true,
+              phoneNumber: true,
+            },
           },
           attachments: true,
           statusLogs: {
@@ -337,7 +527,6 @@ export const getComplaints = asyncHandler(async (req, res) => {
     throw err;
   }
 });
-
 
 // @desc    Get single complaint
 // @route   GET /api/complaints/:id
@@ -438,7 +627,7 @@ export const getComplaint = asyncHandler(async (req, res) => {
 // @route   PUT /api/complaints/:id/status
 // @access  Private (Ward Officer, Maintenance Team, Admin)
 export const updateComplaintStatus = asyncHandler(async (req, res) => {
-  const { status, comment, assignedToId } = req.body;
+  const { status, priority, remarks, assignedToId } = req.body;
   const complaintId = req.params.id;
 
   const complaint = await prisma.complaint.findUnique({
@@ -474,6 +663,71 @@ export const updateComplaintStatus = asyncHandler(async (req, res) => {
     });
   }
 
+  // Validation: Check if status is being changed to ASSIGNED but no assignee is provided
+  if (status === "ASSIGNED" && !assignedToId && !complaint.assignedToId) {
+    let errorMessage =
+      "Please select an assignee before setting status to ASSIGNED.";
+
+    // Customize error message based on user role
+    if (req.user.role === "ADMINISTRATOR") {
+      errorMessage =
+        "Please select a Ward Officer before assigning the complaint.";
+    } else if (req.user.role === "WARD_OFFICER") {
+      errorMessage =
+        "Please select a Maintenance Team member before assigning the complaint.";
+    }
+
+    return res.status(400).json({
+      success: false,
+      message: errorMessage,
+      data: null,
+    });
+  }
+
+  // Validation: If assignedToId is provided, verify the user exists and has the correct role
+  if (assignedToId) {
+    const assignee = await prisma.user.findUnique({
+      where: { id: assignedToId },
+    });
+
+    if (!assignee) {
+      return res.status(400).json({
+        success: false,
+        message: "Selected assignee not found",
+        data: null,
+      });
+    }
+
+    // Role-based validation for assignment
+    if (req.user.role === "ADMINISTRATOR" && assignee.role !== "WARD_OFFICER") {
+      return res.status(400).json({
+        success: false,
+        message: "Administrators can only assign complaints to Ward Officers",
+        data: null,
+      });
+    }
+
+    if (
+      req.user.role === "WARD_OFFICER" &&
+      assignee.role !== "MAINTENANCE_TEAM"
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Ward Officers can only assign complaints to Maintenance Team members",
+        data: null,
+      });
+    }
+
+    if (!assignee.isActive) {
+      return res.status(400).json({
+        success: false,
+        message: "Cannot assign to inactive user",
+        data: null,
+      });
+    }
+  }
+
   const updateData = {
     status,
     slaStatus: calculateSLAStatus(
@@ -482,6 +736,11 @@ export const updateComplaintStatus = asyncHandler(async (req, res) => {
       status,
     ),
   };
+
+  // Update priority if provided
+  if (priority && priority !== complaint.priority) {
+    updateData.priority = priority;
+  }
 
   // Set timestamps based on status
   if (status === "ASSIGNED" && complaint.status !== "ASSIGNED") {
@@ -533,7 +792,7 @@ export const updateComplaintStatus = asyncHandler(async (req, res) => {
       userId: req.user.id,
       fromStatus: complaint.status,
       toStatus: status,
-      comment: comment || `Status updated to ${status}`,
+      comment: remarks || `Status updated to ${status}`,
     },
   });
 
@@ -798,7 +1057,7 @@ export const getComplaintStats = asyncHandler(async (req, res) => {
 // @route   PUT /api/complaints/:id/assign
 // @access  Private (Ward Officer, Admin)
 export const assignComplaint = asyncHandler(async (req, res) => {
-  const { assignedToId } = req.body;
+  const { assignedTo: assignedToId, remarks } = req.body;
   const complaintId = req.params.id;
 
   const complaint = await prisma.complaint.findUnique({
@@ -856,7 +1115,7 @@ export const assignComplaint = asyncHandler(async (req, res) => {
       userId: req.user.id,
       fromStatus: complaint.status,
       toStatus: "ASSIGNED",
-      comment: `Assigned to ${assignee.fullName}`,
+      comment: remarks || `Assigned to ${assignee.fullName}`,
     },
   });
 
@@ -864,5 +1123,84 @@ export const assignComplaint = asyncHandler(async (req, res) => {
     success: true,
     message: "Complaint assigned successfully",
     data: { complaint: updatedComplaint },
+  });
+});
+
+// @desc    Get users for assignment (Ward Officer access)
+// @route   GET /api/complaints/ward-users
+// @access  Private (Ward Officer, Maintenance Team, Administrator)
+export const getWardUsers = asyncHandler(async (req, res) => {
+  const { page = 1, limit = 100, role, status = "all" } = req.query;
+  const skip = (parseInt(page) - 1) * parseInt(limit);
+
+  // Build where clause based on user role
+  let whereClause = {
+    ...(status !== "all" && { isActive: status === "active" }),
+  };
+
+  // Role-based filtering
+  if (req.user.role === "WARD_OFFICER") {
+    // Ward Officers can only see users in their ward
+    whereClause.wardId = req.user.wardId;
+    // Ward Officers can see MAINTENANCE_TEAM and other WARD_OFFICER users for assignment
+    whereClause.role = {
+      in: ["MAINTENANCE_TEAM", "WARD_OFFICER"],
+    };
+  } else if (req.user.role === "MAINTENANCE_TEAM") {
+    // Maintenance team can see other maintenance team members and ward officers in their ward
+    whereClause.wardId = req.user.wardId;
+    whereClause.role = {
+      in: ["MAINTENANCE_TEAM", "WARD_OFFICER"],
+    };
+  } else if (req.user.role === "ADMINISTRATOR") {
+    // Administrators can see all users
+    if (role) {
+      whereClause.role = role;
+    }
+  }
+
+  // If specific role filter is requested, apply it
+  if (role && req.user.role === "ADMINISTRATOR") {
+    whereClause.role = role;
+  }
+
+  const users = await prisma.user.findMany({
+    where: whereClause,
+    select: {
+      id: true,
+      fullName: true,
+      email: true,
+      role: true,
+      wardId: true,
+      department: true,
+      isActive: true,
+      ward: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+    },
+    skip,
+    take: parseInt(limit),
+    orderBy: {
+      fullName: "asc",
+    },
+  });
+
+  const total = await prisma.user.count({ where: whereClause });
+
+  res.status(200).json({
+    success: true,
+    message: "Ward users retrieved successfully",
+    data: {
+      users,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / parseInt(limit)),
+      },
+    },
   });
 });

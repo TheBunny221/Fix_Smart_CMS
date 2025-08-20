@@ -1,9 +1,13 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAppSelector, useAppDispatch } from "../store/hooks";
+import { useComplaintTypes } from "../hooks/useComplaintTypes";
 import { selectAuth } from "../store/slices/authSlice";
 import { useToast } from "../hooks/use-toast";
-import { useUploadComplaintAttachmentMutation, useCreateComplaintMutation } from "../store/api/complaintsApi";
+import {
+  useUploadComplaintAttachmentMutation,
+  useCreateComplaintMutation,
+} from "../store/api/complaintsApi";
 import {
   Card,
   CardContent,
@@ -39,6 +43,7 @@ import {
   Eye,
   Info,
   UserCheck,
+  Image,
 } from "lucide-react";
 
 interface CitizenComplaintData {
@@ -49,6 +54,7 @@ interface CitizenComplaintData {
   type: string;
   description: string;
   priority: string;
+  slaHours?: number; // Auto-assigned internally
 
   // Step 2: Location
   wardId: string;
@@ -64,63 +70,6 @@ interface CitizenComplaintData {
   // Step 3: Attachments
   attachments?: any[];
 }
-
-const COMPLAINT_TYPES = [
-  {
-    value: "WATER_SUPPLY",
-    label: "Water Supply",
-    description: "Issues with water supply, quality, or pressure",
-    urgency: "Medium",
-  },
-  {
-    value: "ELECTRICITY",
-    label: "Electricity",
-    description: "Power outages, faulty connections, or street lighting",
-    urgency: "High",
-  },
-  {
-    value: "ROAD_REPAIR",
-    label: "Road Repair",
-    description: "Potholes, broken roads, or pedestrian issues",
-    urgency: "Medium",
-  },
-  {
-    value: "GARBAGE_COLLECTION",
-    label: "Garbage Collection",
-    description: "Waste management and cleanliness issues",
-    urgency: "Medium",
-  },
-  {
-    value: "STREET_LIGHTING",
-    label: "Street Lighting",
-    description: "Non-functioning or damaged street lights",
-    urgency: "Medium",
-  },
-  {
-    value: "SEWERAGE",
-    label: "Sewerage",
-    description: "Drainage problems, blockages, or overflow",
-    urgency: "High",
-  },
-  {
-    value: "PUBLIC_HEALTH",
-    label: "Public Health",
-    description: "Health and sanitation concerns",
-    urgency: "High",
-  },
-  {
-    value: "TRAFFIC",
-    label: "Traffic",
-    description: "Traffic management and road safety issues",
-    urgency: "Medium",
-  },
-  {
-    value: "OTHERS",
-    label: "Others",
-    description: "Any other civic issues not listed above",
-    urgency: "Low",
-  },
-];
 
 const PRIORITIES = [
   {
@@ -187,6 +136,8 @@ const CitizenComplaintForm: React.FC = () => {
   const dispatch = useAppDispatch();
   const { toast } = useToast();
   const { user, isAuthenticated } = useAppSelector(selectAuth);
+  const { complaintTypeOptions, isLoading: complaintTypesLoading } =
+    useComplaintTypes();
 
   const [currentStep, setCurrentStep] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -203,6 +154,7 @@ const CitizenComplaintForm: React.FC = () => {
     type: "",
     description: "",
     priority: "MEDIUM",
+    slaHours: 48,
     wardId: user?.wardId || "",
     area: "",
     landmark: "",
@@ -283,7 +235,22 @@ const CitizenComplaintForm: React.FC = () => {
   };
 
   const handleSelectChange = (name: string, value: string) => {
-    setFormData((prev) => ({ ...prev, [name]: value }));
+    setFormData((prev) => {
+      const updatedData = { ...prev, [name]: value };
+
+      // Auto-assign priority and SLA hours when complaint type changes
+      if (name === "type") {
+        const selectedType = complaintTypeOptions.find(
+          (type) => type.value === value,
+        );
+        if (selectedType) {
+          updatedData.priority = selectedType.priority || "MEDIUM";
+          updatedData.slaHours = selectedType.slaHours || 48;
+        }
+      }
+
+      return updatedData;
+    });
     if (validationErrors[name]) {
       setValidationErrors((prev) => ({ ...prev, [name]: "" }));
     }
@@ -332,6 +299,7 @@ const CitizenComplaintForm: React.FC = () => {
         description: formData.description,
         type: formData.type,
         priority: formData.priority,
+        slaHours: formData.slaHours,
         wardId: formData.wardId,
         subZoneId: formData.subZoneId,
         area: formData.area,
@@ -345,7 +313,10 @@ const CitizenComplaintForm: React.FC = () => {
       };
 
       const complaintResponse = await createComplaint(complaintData).unwrap();
-      const complaintId = complaintResponse.data.complaint.id;
+      const complaint = complaintResponse.data.complaint;
+      const complaintId = complaint.id;
+      const displayId =
+        complaint.complaintId || complaintId.slice(-6).toUpperCase();
 
       // Upload attachments if any
       if (formData.attachments && formData.attachments.length > 0) {
@@ -363,7 +334,7 @@ const CitizenComplaintForm: React.FC = () => {
 
       toast({
         title: "Complaint Submitted Successfully!",
-        description: `Your complaint has been registered with ID: ${complaintId.slice(-6).toUpperCase()}. You will receive updates via email and in-app notifications.`,
+        description: `Your complaint has been registered with ID: ${displayId}. You will receive updates via email and in-app notifications.`,
       });
 
       navigate("/complaints");
@@ -371,7 +342,9 @@ const CitizenComplaintForm: React.FC = () => {
       console.error("Submission error:", error);
       toast({
         title: "Submission Failed",
-        description: error?.data?.message || "There was an error submitting your complaint. Please try again.",
+        description:
+          error?.data?.message ||
+          "There was an error submitting your complaint. Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -381,7 +354,9 @@ const CitizenComplaintForm: React.FC = () => {
   };
 
   // File upload handlers
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
     const files = event.target.files;
     if (!files || files.length === 0) return;
 
@@ -409,7 +384,12 @@ const CitizenComplaintForm: React.FC = () => {
       }
 
       // Validate file type
-      const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif'];
+      const allowedTypes = [
+        "image/jpeg",
+        "image/jpg",
+        "image/png",
+        "image/gif",
+      ];
       if (!allowedTypes.includes(file.type)) {
         errors.push(`${file.name}: Invalid file type (only images allowed)`);
         continue;
@@ -428,25 +408,25 @@ const CitizenComplaintForm: React.FC = () => {
     }
 
     if (validFiles.length > 0) {
-      setFormData(prev => ({
+      setFormData((prev) => ({
         ...prev,
-        attachments: [...(prev.attachments || []), ...validFiles]
+        attachments: [...(prev.attachments || []), ...validFiles],
       }));
       setFileUploadErrors([]);
     }
 
     // Clear the input
-    event.target.value = '';
+    event.target.value = "";
   };
 
   const removeFile = (index: number) => {
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
-      attachments: prev.attachments?.filter((_, i) => i !== index) || []
+      attachments: prev.attachments?.filter((_, i) => i !== index) || [],
     }));
   };
 
-  const selectedComplaintType = COMPLAINT_TYPES.find(
+  const selectedComplaintType = complaintTypeOptions.find(
     (c) => c.value === formData.type,
   );
   const selectedWard = WARDS.find((w) => w.id === formData.wardId);
@@ -620,23 +600,40 @@ const CitizenComplaintForm: React.FC = () => {
                         <SelectValue placeholder="Select complaint type" />
                       </SelectTrigger>
                       <SelectContent>
-                        {COMPLAINT_TYPES.map((type) => (
-                          <SelectItem key={type.value} value={type.value}>
-                            <div className="flex flex-col">
-                              <div className="flex items-center gap-2">
-                                <span className="font-medium">
-                                  {type.label}
-                                </span>
-                                <Badge variant="outline" className="text-xs">
-                                  {type.urgency}
-                                </Badge>
-                              </div>
-                              <span className="text-xs text-gray-500">
-                                {type.description}
-                              </span>
-                            </div>
+                        {complaintTypesLoading ? (
+                          <SelectItem value="loading" disabled>
+                            Loading complaint types...
                           </SelectItem>
-                        ))}
+                        ) : complaintTypeOptions.length > 0 ? (
+                          complaintTypeOptions.map((type) => (
+                            <SelectItem key={type.value} value={type.value}>
+                              <div className="flex flex-col">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-medium">
+                                    {type.label}
+                                  </span>
+                                  {type.priority && (
+                                    <Badge
+                                      variant="outline"
+                                      className="text-xs"
+                                    >
+                                      {type.priority}
+                                    </Badge>
+                                  )}
+                                </div>
+                                {type.description && (
+                                  <span className="text-xs text-gray-500">
+                                    {type.description}
+                                  </span>
+                                )}
+                              </div>
+                            </SelectItem>
+                          ))
+                        ) : (
+                          <SelectItem value="none" disabled>
+                            No complaint types available
+                          </SelectItem>
+                        )}
                       </SelectContent>
                     </Select>
                     {validationErrors.type && (
@@ -654,50 +651,62 @@ const CitizenComplaintForm: React.FC = () => {
                       <p className="text-sm text-blue-700 mb-2">
                         {selectedComplaintType.description}
                       </p>
-                      <div className="flex items-center gap-2">
-                        <Info className="h-4 w-4 text-blue-600" />
-                        <span className="text-sm text-blue-600">
-                          Typical urgency level: {selectedComplaintType.urgency}
-                        </span>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                        <div className="flex items-center gap-2">
+                          <Info className="h-4 w-4 text-blue-600" />
+                          <span className="text-sm text-blue-600">
+                            Priority: {selectedComplaintType.priority}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Info className="h-4 w-4 text-blue-600" />
+                          <span className="text-sm text-blue-600">
+                            SLA: {selectedComplaintType.slaHours}h
+                          </span>
+                        </div>
                       </div>
                     </div>
                   )}
 
-                  <div className="space-y-2">
-                    <Label>Priority</Label>
-                    <Select
-                      value={formData.priority}
-                      onValueChange={(value) =>
-                        handleSelectChange("priority", value)
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {PRIORITIES.map((priority) => (
-                          <SelectItem
-                            key={priority.value}
-                            value={priority.value}
-                          >
-                            <div className="flex items-center gap-2">
-                              <div
-                                className={`w-2 h-2 rounded-full ${priority.color}`}
-                              />
-                              <div className="flex flex-col">
-                                <span className="font-medium">
-                                  {priority.label}
-                                </span>
-                                <span className="text-xs text-gray-500">
-                                  {priority.description}
-                                </span>
-                              </div>
-                            </div>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  {/* Priority is now auto-assigned and hidden from user */}
+                  {selectedComplaintType && (
+                    <div className="bg-gray-50 p-4 rounded-lg border">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h4 className="font-medium text-gray-800 mb-1">
+                            Auto-assigned Details
+                          </h4>
+                          <p className="text-sm text-gray-600">
+                            Based on your complaint type, the following have
+                            been automatically set:
+                          </p>
+                        </div>
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-4">
+                        <div className="flex items-center gap-2">
+                          <div
+                            className={`w-2 h-2 rounded-full ${
+                              PRIORITIES.find(
+                                (p) => p.value === formData.priority,
+                              )?.color || "bg-gray-500"
+                            }`}
+                          />
+                          <span className="text-sm font-medium">
+                            Priority:{" "}
+                            {PRIORITIES.find(
+                              (p) => p.value === formData.priority,
+                            )?.label || formData.priority}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Info className="h-4 w-4 text-gray-600" />
+                          <span className="text-sm font-medium">
+                            SLA: {formData.slaHours} hours
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="space-y-2">
                     <Label htmlFor="description">Description *</Label>
@@ -886,44 +895,54 @@ const CitizenComplaintForm: React.FC = () => {
                     </Label>
 
                     {/* Display uploaded files */}
-                    {formData.attachments && formData.attachments.length > 0 && (
-                      <div className="space-y-2">
-                        <h4 className="font-medium text-sm text-gray-700">
-                          Uploaded Files ({formData.attachments.length}/5)
-                        </h4>
+                    {formData.attachments &&
+                      formData.attachments.length > 0 && (
                         <div className="space-y-2">
-                          {formData.attachments.map((file, index) => (
-                            <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                              <div className="flex items-center space-x-3">
-                                <Image className="h-5 w-5 text-blue-500" />
-                                <div>
-                                  <p className="text-sm font-medium">{file.name}</p>
-                                  <p className="text-xs text-gray-500">
-                                    {(file.size / 1024).toFixed(1)} KB
-                                  </p>
-                                </div>
-                              </div>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => removeFile(index)}
-                                className="text-red-500 hover:text-red-700"
+                          <h4 className="font-medium text-sm text-gray-700">
+                            Uploaded Files ({formData.attachments.length}/5)
+                          </h4>
+                          <div className="space-y-2">
+                            {formData.attachments.map((file, index) => (
+                              <div
+                                key={index}
+                                className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
                               >
-                                <X className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          ))}
+                                <div className="flex items-center space-x-3">
+                                  <Image className="h-5 w-5 text-blue-500" />
+                                  <div>
+                                    <p className="text-sm font-medium">
+                                      {file.name}
+                                    </p>
+                                    <p className="text-xs text-gray-500">
+                                      {(file.size / 1024).toFixed(1)} KB
+                                    </p>
+                                  </div>
+                                </div>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => removeFile(index)}
+                                  className="text-red-500 hover:text-red-700"
+                                >
+                                  <X className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      )}
 
                     {/* File upload errors */}
                     {fileUploadErrors.length > 0 && (
                       <div className="space-y-2">
-                        <h4 className="font-medium text-sm text-red-700">Upload Errors:</h4>
+                        <h4 className="font-medium text-sm text-red-700">
+                          Upload Errors:
+                        </h4>
                         {fileUploadErrors.map((error, index) => (
-                          <p key={index} className="text-sm text-red-600">{error}</p>
+                          <p key={index} className="text-sm text-red-600">
+                            {error}
+                          </p>
                         ))}
                       </div>
                     )}
@@ -1002,6 +1021,9 @@ const CitizenComplaintForm: React.FC = () => {
                         </Badge>
                       </p>
                       <p>
+                        <strong>SLA Hours:</strong> {formData.slaHours} hours
+                      </p>
+                      <p>
                         <strong>Description:</strong> {formData.description}
                       </p>
                     </CardContent>
@@ -1049,13 +1071,18 @@ const CitizenComplaintForm: React.FC = () => {
                       <CardTitle className="text-base">Attachments</CardTitle>
                     </CardHeader>
                     <CardContent>
-                      {formData.attachments && formData.attachments.length > 0 ? (
+                      {formData.attachments &&
+                      formData.attachments.length > 0 ? (
                         <div className="space-y-2">
                           <p className="text-sm text-gray-600 mb-3">
-                            {formData.attachments.length} file(s) will be uploaded with your complaint:
+                            {formData.attachments.length} file(s) will be
+                            uploaded with your complaint:
                           </p>
                           {formData.attachments.map((file, index) => (
-                            <div key={index} className="flex items-center space-x-3 p-2 bg-gray-50 rounded">
+                            <div
+                              key={index}
+                              className="flex items-center space-x-3 p-2 bg-gray-50 rounded"
+                            >
                               <Image className="h-4 w-4 text-blue-500" />
                               <span className="text-sm">{file.name}</span>
                               <span className="text-xs text-gray-500">

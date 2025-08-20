@@ -1,12 +1,10 @@
 import React, { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useAppSelector } from "../store/hooks";
-import {
-  useGetComplaintQuery,
-  useUpdateComplaintStatusMutation,
-} from "../store/api/complaintsApi";
-import { useDataManager, useStatusTracking } from "../hooks/useDataManager";
+import { useGetComplaintQuery } from "../store/api/complaintsApi";
+import { useDataManager } from "../hooks/useDataManager";
 import ComplaintFeedbackDialog from "../components/ComplaintFeedbackDialog";
+import ComplaintStatusUpdate from "../components/ComplaintStatusUpdate";
 import {
   Card,
   CardContent,
@@ -15,8 +13,6 @@ import {
 } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
-import { Textarea } from "../components/ui/textarea";
-import { Label } from "../components/ui/label";
 import {
   Tabs,
   TabsContent,
@@ -37,18 +33,18 @@ import {
   Image,
   Download,
 } from "lucide-react";
+import jsPDF from "jspdf";
 
 const ComplaintDetails: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const { user, isAuthenticated } = useAppSelector((state) => state.auth);
   const { translations } = useAppSelector((state) => state.language);
 
-  const [statusComment, setStatusComment] = useState("");
   const [showFeedbackDialog, setShowFeedbackDialog] = useState(false);
+  const [showStatusDialog, setShowStatusDialog] = useState(false);
 
   // Data management hooks
   const { cacheComplaintDetails, getComplaintDetails } = useDataManager();
-  const { updateStatus: updateComplaintStatus } = useStatusTracking();
 
   // Use RTK Query to fetch complaint details
   const {
@@ -56,10 +52,6 @@ const ComplaintDetails: React.FC = () => {
     isLoading,
     error,
   } = useGetComplaintQuery(id!, { skip: !id || !isAuthenticated });
-
-  // Use RTK Query mutation for status updates
-  const [updateStatus, { isLoading: isUpdatingStatus }] =
-    useUpdateComplaintStatusMutation();
 
   const complaint = complaintResponse?.data?.complaint;
 
@@ -69,7 +61,6 @@ const ComplaintDetails: React.FC = () => {
       cacheComplaintDetails(id, complaint);
     }
   }, [complaint, id, cacheComplaintDetails]);
-
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -103,23 +94,235 @@ const ComplaintDetails: React.FC = () => {
     }
   };
 
-  const handleStatusUpdate = async (newStatus: string) => {
-    if (id) {
-      try {
-        // Update via API
-        await updateStatus({
-          id,
-          status: newStatus as any,
-          remarks: statusComment,
-        }).unwrap();
+  const handleExportDetails = () => {
+    if (!complaint) {
+      console.error("No complaint data available for export");
+      return;
+    }
 
-        // Update centralized store
-        updateComplaintStatus(id, newStatus, statusComment);
+    try {
+      // Get current translations for the user's language
+      const t = translations || {};
 
-        setStatusComment("");
-      } catch (error) {
-        console.error("Failed to update status:", error);
+      // Create PDF document
+      const doc = new jsPDF();
+      let yPosition = 20;
+      const lineHeight = 10;
+      const sectionSpacing = 5;
+
+      // Helper function to add text with word wrapping
+      const addText = (text: string, fontSize = 10, isBold = false) => {
+        if (isBold) {
+          doc.setFont("helvetica", "bold");
+        } else {
+          doc.setFont("helvetica", "normal");
+        }
+        doc.setFontSize(fontSize);
+
+        // Simple word wrapping for long text
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const margin = 20;
+        const maxWidth = pageWidth - 2 * margin;
+        const lines = doc.splitTextToSize(text, maxWidth);
+
+        lines.forEach((line: string) => {
+          if (yPosition > 280) {
+            // Check if we need a new page
+            doc.addPage();
+            yPosition = 20;
+          }
+          doc.text(line, margin, yPosition);
+          yPosition += lineHeight;
+        });
+
+        return yPosition;
+      };
+
+      // Header
+      addText(t.common?.export || "Export Details", 16, true);
+      yPosition += sectionSpacing;
+
+      // Complaint Information Section
+      yPosition += sectionSpacing;
+      addText(t.complaints?.complaintId || "Complaint ID", 12, true);
+      addText(complaint.complaintId || complaint.id);
+      yPosition += sectionSpacing;
+
+      if (complaint.type) {
+        addText(t.complaints?.complaintType || "Complaint Type", 12, true);
+        addText(complaint.type);
+        yPosition += sectionSpacing;
       }
+
+      if (complaint.title) {
+        addText(t.complaints?.title || "Title", 12, true);
+        addText(complaint.title);
+        yPosition += sectionSpacing;
+      }
+
+      if (complaint.description) {
+        addText(t.complaints?.description || "Description", 12, true);
+        addText(complaint.description);
+        yPosition += sectionSpacing;
+      }
+
+      if (complaint.status) {
+        addText(t.complaints?.status || "Status", 12, true);
+        // Translate status if available
+        const statusKey =
+          complaint.status.toLowerCase() as keyof typeof t.complaints;
+        const translatedStatus = t.complaints?.[statusKey] || complaint.status;
+        addText(translatedStatus);
+        yPosition += sectionSpacing;
+      }
+
+      if (complaint.priority) {
+        addText(t.complaints?.priority || "Priority", 12, true);
+        // Translate priority if available
+        const priorityKey =
+          complaint.priority.toLowerCase() as keyof typeof t.complaints;
+        const translatedPriority =
+          t.complaints?.[priorityKey] || complaint.priority;
+        addText(translatedPriority);
+        yPosition += sectionSpacing;
+      }
+
+      // Location Information
+      yPosition += sectionSpacing;
+      addText(t.complaints?.locationDetails || "Location Details", 14, true);
+      yPosition += sectionSpacing;
+
+      if (complaint.ward?.name) {
+        addText(t.complaints?.ward || "Ward", 12, true);
+        addText(complaint.ward.name);
+        yPosition += sectionSpacing;
+      }
+
+      if (complaint.area) {
+        addText(t.complaints?.area || "Area", 12, true);
+        addText(complaint.area);
+        yPosition += sectionSpacing;
+      }
+
+      if (complaint.location) {
+        addText(t.complaints?.location || "Location", 12, true);
+        addText(complaint.location);
+        yPosition += sectionSpacing;
+      }
+
+      if (complaint.address) {
+        addText(t.complaints?.address || "Address", 12, true);
+        addText(complaint.address);
+        yPosition += sectionSpacing;
+      }
+
+      // Contact Information
+      yPosition += sectionSpacing;
+      addText(t.forms?.contactInformation || "Contact Information", 14, true);
+      yPosition += sectionSpacing;
+
+      if (complaint.submittedBy?.fullName) {
+        addText(t.complaints?.submittedBy || "Submitted By", 12, true);
+        addText(complaint.submittedBy.fullName);
+        yPosition += sectionSpacing;
+      }
+
+      if (complaint.mobile) {
+        addText(t.complaints?.mobile || "Mobile", 12, true);
+        addText(complaint.mobile);
+        yPosition += sectionSpacing;
+      }
+
+      if (complaint.email) {
+        addText(t.auth?.email || "Email", 12, true);
+        addText(complaint.email);
+        yPosition += sectionSpacing;
+      }
+
+      // Dates
+      yPosition += sectionSpacing;
+      addText(t.common?.dates || "Important Dates", 14, true);
+      yPosition += sectionSpacing;
+
+      if (complaint.submittedOn) {
+        addText(t.complaints?.submittedDate || "Submitted Date", 12, true);
+        addText(new Date(complaint.submittedOn).toLocaleDateString());
+        yPosition += sectionSpacing;
+      }
+
+      if (complaint.lastUpdated) {
+        addText(t.complaints?.lastUpdated || "Last Updated", 12, true);
+        addText(new Date(complaint.lastUpdated).toLocaleDateString());
+        yPosition += sectionSpacing;
+      }
+
+      if (complaint.resolvedDate) {
+        addText(t.complaints?.resolvedDate || "Resolved Date", 12, true);
+        addText(new Date(complaint.resolvedDate).toLocaleDateString());
+        yPosition += sectionSpacing;
+      }
+
+      // Assignment Information
+      if (complaint.assignedTo?.fullName) {
+        yPosition += sectionSpacing;
+        addText(t.complaints?.assignedTo || "Assigned To", 12, true);
+        addText(complaint.assignedTo.fullName);
+        yPosition += sectionSpacing;
+      }
+
+      // Remarks and Feedback
+      if (complaint.remarks) {
+        yPosition += sectionSpacing;
+        addText(t.complaints?.remarks || "Remarks", 12, true);
+        addText(complaint.remarks);
+        yPosition += sectionSpacing;
+      }
+
+      if (complaint.feedback) {
+        yPosition += sectionSpacing;
+        addText(t.complaints?.feedback || "Feedback", 12, true);
+        addText(complaint.feedback);
+        yPosition += sectionSpacing;
+      }
+
+      if (complaint.rating) {
+        yPosition += sectionSpacing;
+        addText(t.complaints?.rating || "Rating", 12, true);
+        addText(`${complaint.rating}/5`);
+        yPosition += sectionSpacing;
+      }
+
+      // Attachments
+      if (complaint.attachments && complaint.attachments.length > 0) {
+        yPosition += sectionSpacing;
+        addText(t.complaints?.attachments || "Attachments", 14, true);
+        yPosition += sectionSpacing;
+
+        complaint.attachments.forEach((attachment, index) => {
+          addText(
+            `${index + 1}. ${attachment.originalName || attachment.fileName}`,
+          );
+        });
+        yPosition += sectionSpacing;
+      }
+
+      // Footer with export information
+      yPosition += sectionSpacing * 2;
+      addText(
+        `${t.common?.export || "Exported"}: ${new Date().toLocaleString()}`,
+        8,
+      );
+      if (user?.fullName) {
+        addText(`${t.common?.by || "By"}: ${user.fullName}`, 8);
+      }
+
+      // Save PDF
+      const fileName = `complaint-${complaint.complaintId || complaint.id}-${new Date().toISOString().split("T")[0]}.pdf`;
+      doc.save(fileName);
+
+      console.log("Complaint details exported as PDF successfully");
+    } catch (error) {
+      console.error("Failed to export complaint details as PDF:", error);
     }
   };
 
@@ -196,18 +399,22 @@ const ComplaintDetails: React.FC = () => {
               </Button>
             </Link>
             <h1 className="text-2xl font-bold text-gray-900">
-              Complaint #{complaint?.id?.slice(-6) || 'Unknown'}
+              Complaint #
+              {complaint?.complaintId || complaint?.id?.slice(-6) || "Unknown"}
             </h1>
           </div>
           <div className="flex items-center space-x-4">
-            <Badge className={getStatusColor(complaint?.status || '')}>
-              {complaint?.status?.replace("_", " ") || 'Unknown'}
+            <Badge className={getStatusColor(complaint?.status || "")}>
+              {complaint?.status?.replace("_", " ") || "Unknown"}
             </Badge>
-            <Badge className={getPriorityColor(complaint?.priority || '')}>
-              {complaint?.priority || 'Unknown'} Priority
+            <Badge className={getPriorityColor(complaint?.priority || "")}>
+              {complaint?.priority || "Unknown"} Priority
             </Badge>
             <span className="text-sm text-gray-500">
-              Created {complaint?.submittedOn ? new Date(complaint.submittedOn).toLocaleDateString() : 'Unknown'}
+              Created{" "}
+              {complaint?.submittedOn
+                ? new Date(complaint.submittedOn).toLocaleDateString()
+                : "Unknown"}
             </span>
           </div>
         </div>
@@ -229,12 +436,14 @@ const ComplaintDetails: React.FC = () => {
               <div>
                 <h3 className="font-medium mb-2">Type</h3>
                 <p className="text-gray-600">
-                  {complaint?.type?.replace("_", " ") || 'Unknown Type'}
+                  {complaint?.type?.replace("_", " ") || "Unknown Type"}
                 </p>
               </div>
               <div>
                 <h3 className="font-medium mb-2">Description</h3>
-                <p className="text-gray-600">{complaint?.description || 'No description available'}</p>
+                <p className="text-gray-600">
+                  {complaint?.description || "No description available"}
+                </p>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
@@ -282,115 +491,153 @@ const ComplaintDetails: React.FC = () => {
             <CardHeader>
               <CardTitle className="flex items-center">
                 <MessageSquare className="h-5 w-5 mr-2" />
-                Status Updates & Comments
+                {user?.role === "CITIZEN"
+                  ? "Status Updates"
+                  : "Status Updates & Comments"}
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {/* Mock status updates */}
-                <div className="border-l-4 border-blue-500 pl-4 py-2">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <p className="font-medium">Complaint Registered</p>
-                      <p className="text-sm text-gray-600">
-                        Your complaint has been successfully registered.
-                      </p>
-                    </div>
-                    <span className="text-xs text-gray-500">
-                      {new Date(complaint.submittedOn).toLocaleString()}
-                    </span>
-                  </div>
-                </div>
+                {/* Real status logs with remarks and comments */}
+                {complaint.statusLogs && complaint.statusLogs.length > 0 ? (
+                  complaint.statusLogs.map((log, index) => {
+                    const getStatusColor = (status) => {
+                      switch (status) {
+                        case "REGISTERED":
+                          return "border-blue-500";
+                        case "ASSIGNED":
+                          return "border-yellow-500";
+                        case "IN_PROGRESS":
+                          return "border-orange-500";
+                        case "RESOLVED":
+                          return "border-green-500";
+                        case "CLOSED":
+                          return "border-gray-500";
+                        default:
+                          return "border-gray-400";
+                      }
+                    };
 
-                {complaint.assignedOn && (
-                  <div className="border-l-4 border-yellow-500 pl-4 py-2">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <p className="font-medium">Complaint Assigned</p>
-                        <p className="text-sm text-gray-600">
-                          Assigned to maintenance team for resolution.
-                        </p>
-                      </div>
-                      <span className="text-xs text-gray-500">
-                        {new Date(complaint.assignedOn).toLocaleString()}
-                      </span>
-                    </div>
-                  </div>
-                )}
+                    const getStatusLabel = (status) => {
+                      switch (status) {
+                        case "REGISTERED":
+                          return "Complaint Registered";
+                        case "ASSIGNED":
+                          return "Complaint Assigned";
+                        case "IN_PROGRESS":
+                          return "Work in Progress";
+                        case "RESOLVED":
+                          return "Complaint Resolved";
+                        case "CLOSED":
+                          return "Complaint Closed";
+                        default:
+                          return `Status: ${status}`;
+                      }
+                    };
 
-                {complaint.status === "IN_PROGRESS" && (
-                  <div className="border-l-4 border-orange-500 pl-4 py-2">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <p className="font-medium">Work in Progress</p>
-                        <p className="text-sm text-gray-600">
-                          Our team is working on resolving this issue.
-                        </p>
+                    // Get citizen-friendly status messages
+                    const getCitizenStatusMessage = (status, log) => {
+                      switch (status) {
+                        case "REGISTERED":
+                          return "Your complaint has been successfully registered and is under review.";
+                        case "ASSIGNED":
+                          return "Your complaint has been assigned to our maintenance team for resolution.";
+                        case "IN_PROGRESS":
+                          return "Our team is actively working on resolving your complaint.";
+                        case "RESOLVED":
+                          return "Your complaint has been resolved. Please verify and provide feedback.";
+                        case "CLOSED":
+                          return "Your complaint has been completed and closed.";
+                        default:
+                          return `Your complaint status has been updated to ${status.toLowerCase().replace("_", " ")}.`;
+                      }
+                    };
+
+                    // Check if user is a citizen
+                    const isCitizen = user?.role === "CITIZEN";
+
+                    return (
+                      <div
+                        key={log.id || index}
+                        className={`border-l-4 ${getStatusColor(log.toStatus)} pl-4 py-2`}
+                      >
+                        <div className="flex justify-between items-start">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <p className="font-medium">
+                                {getStatusLabel(log.toStatus)}
+                              </p>
+                              {/* Show staff details only to non-citizens */}
+                              {!isCitizen && log.user && (
+                                <Badge variant="outline" className="text-xs">
+                                  {log.user.fullName} ({log.user.role})
+                                </Badge>
+                              )}
+                            </div>
+
+                            {/* Show appropriate message based on user role */}
+                            {isCitizen ? (
+                              <p className="text-sm text-gray-600 mb-1">
+                                {getCitizenStatusMessage(log.toStatus, log)}
+                              </p>
+                            ) : (
+                              <>
+                                {log.comment && (
+                                  <p className="text-sm text-gray-600 mb-1">
+                                    <strong>Remarks:</strong> {log.comment}
+                                  </p>
+                                )}
+                              </>
+                            )}
+
+                            {log.fromStatus && (
+                              <p className="text-xs text-gray-500">
+                                Status changed from{" "}
+                                <span className="font-medium">
+                                  {log.fromStatus}
+                                </span>{" "}
+                                to{" "}
+                                <span className="font-medium">
+                                  {log.toStatus}
+                                </span>
+                              </p>
+                            )}
+                          </div>
+                          <span className="text-xs text-gray-500 ml-4">
+                            {new Date(log.timestamp).toLocaleString()}
+                          </span>
+                        </div>
                       </div>
-                      <span className="text-xs text-gray-500">2 hours ago</span>
-                    </div>
+                    );
+                  })
+                ) : (
+                  <div className="text-center py-4 text-gray-500">
+                    <MessageSquare className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                    <p>
+                      {user?.role === "CITIZEN"
+                        ? "No updates available for your complaint yet"
+                        : "No status updates available"}
+                    </p>
                   </div>
                 )}
               </div>
             </CardContent>
           </Card>
 
-          {/* Status Update Form (for authorized users) */}
-          {(user?.role === "WARD_OFFICER" ||
-            user?.role === "MAINTENANCE_TEAM" ||
-            user?.role === "ADMINISTRATOR") && (
+          {/* General Remarks - Hidden from citizens as they may contain internal notes */}
+          {complaint.remarks && user?.role !== "CITIZEN" && (
             <Card>
               <CardHeader>
-                <CardTitle>Update Status</CardTitle>
+                <CardTitle className="flex items-center">
+                  <FileText className="h-5 w-5 mr-2" />
+                  General Remarks
+                </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <Label htmlFor="statusComment">Add Comment</Label>
-                  <Textarea
-                    id="statusComment"
-                    value={statusComment}
-                    onChange={(e) => setStatusComment(e.target.value)}
-                    placeholder="Add a status update or comment..."
-                    rows={3}
-                  />
-                </div>
-                <div className="flex space-x-2">
-                  {complaint.status === "REGISTERED" &&
-                    user?.role === "WARD_OFFICER" && (
-                      <Button
-                        onClick={() => handleStatusUpdate("ASSIGNED")}
-                        disabled={isUpdatingStatus}
-                      >
-                        {isUpdatingStatus ? "Assigning..." : "Assign"}
-                      </Button>
-                    )}
-                  {complaint.status === "ASSIGNED" &&
-                    user?.role === "MAINTENANCE_TEAM" && (
-                      <Button
-                        onClick={() => handleStatusUpdate("IN_PROGRESS")}
-                        disabled={isUpdatingStatus}
-                      >
-                        {isUpdatingStatus ? "Starting..." : "Start Work"}
-                      </Button>
-                    )}
-                  {complaint.status === "IN_PROGRESS" &&
-                    user?.role === "MAINTENANCE_TEAM" && (
-                      <Button
-                        onClick={() => handleStatusUpdate("RESOLVED")}
-                        disabled={isUpdatingStatus}
-                      >
-                        {isUpdatingStatus ? "Resolving..." : "Mark Resolved"}
-                      </Button>
-                    )}
-                  {complaint.status === "RESOLVED" &&
-                    user?.role === "WARD_OFFICER" && (
-                      <Button
-                        onClick={() => handleStatusUpdate("CLOSED")}
-                        disabled={isUpdatingStatus}
-                      >
-                        {isUpdatingStatus ? "Closing..." : "Close Complaint"}
-                      </Button>
-                    )}
+              <CardContent>
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <p className="text-gray-700 whitespace-pre-wrap">
+                    {complaint.remarks}
+                  </p>
                 </div>
               </CardContent>
             </Card>
@@ -436,7 +683,12 @@ const ComplaintDetails: React.FC = () => {
               <CardContent className="space-y-3">
                 <div>
                   <p className="text-sm font-medium">Assigned To</p>
-                  <p className="text-gray-600">{complaint.assignedTo}</p>
+                  <p className="text-gray-600">
+                    {typeof complaint.assignedTo === "object" &&
+                    complaint.assignedTo
+                      ? complaint.assignedTo.fullName
+                      : complaint.assignedTo}
+                  </p>
                 </div>
                 {complaint.deadline && (
                   <div>
@@ -467,7 +719,7 @@ const ComplaintDetails: React.FC = () => {
                       className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 transition-colors"
                     >
                       <div className="flex items-center space-x-3">
-                        {attachment.mimeType?.startsWith('image/') ? (
+                        {attachment.mimeType?.startsWith("image/") ? (
                           <Image className="h-5 w-5 text-blue-500" />
                         ) : (
                           <FileText className="h-5 w-5 text-gray-500" />
@@ -477,8 +729,10 @@ const ComplaintDetails: React.FC = () => {
                             {attachment.originalName}
                           </p>
                           <p className="text-xs text-gray-500">
-                            {(attachment.size / 1024).toFixed(1)} KB •{' '}
-                            {new Date(attachment.uploadedAt).toLocaleDateString()}
+                            {(attachment.size / 1024).toFixed(1)} KB •{" "}
+                            {new Date(
+                              attachment.uploadedAt,
+                            ).toLocaleDateString()}
                           </p>
                         </div>
                       </div>
@@ -486,15 +740,17 @@ const ComplaintDetails: React.FC = () => {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => window.open(attachment.url, '_blank')}
+                          onClick={() => window.open(attachment.url, "_blank")}
                         >
                           <Download className="h-4 w-4" />
                         </Button>
-                        {attachment.mimeType?.startsWith('image/') && (
+                        {attachment.mimeType?.startsWith("image/") && (
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => window.open(attachment.url, '_blank')}
+                            onClick={() =>
+                              window.open(attachment.url, "_blank")
+                            }
                           >
                             View
                           </Button>
@@ -518,6 +774,18 @@ const ComplaintDetails: React.FC = () => {
               <CardTitle>Quick Actions</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
+              {/* Status update button for Ward Officers and Administrators */}
+              {(user?.role === "WARD_OFFICER" ||
+                user?.role === "ADMINISTRATOR") && (
+                <Button
+                  className="w-full justify-start"
+                  onClick={() => setShowStatusDialog(true)}
+                >
+                  <CheckCircle className="h-4 w-4 mr-2" />
+                  Update Status
+                </Button>
+              )}
+
               {/* Show feedback button for resolved/closed complaints if user is the complainant */}
               {(complaint.status === "RESOLVED" ||
                 complaint.status === "CLOSED") &&
@@ -532,18 +800,38 @@ const ComplaintDetails: React.FC = () => {
                   </Button>
                 )}
 
-              <Button variant="outline" className="w-full justify-start">
+              <Button
+                variant="outline"
+                className="w-full justify-start"
+                onClick={handleExportDetails}
+              >
                 <Download className="h-4 w-4 mr-2" />
                 Export Details
-              </Button>
-              <Button variant="outline" className="w-full justify-start">
-                <MessageSquare className="h-4 w-4 mr-2" />
-                Send Message
               </Button>
             </CardContent>
           </Card>
         </div>
       </div>
+
+      {/* Status Update Dialog */}
+      <ComplaintStatusUpdate
+        complaint={{
+          id: complaint.id,
+          complaintId: complaint.complaintId,
+          status: complaint.status,
+          priority: complaint.priority,
+          type: complaint.type,
+          description: complaint.description,
+          area: complaint.area,
+          assignedTo: complaint.assignedTo,
+        }}
+        isOpen={showStatusDialog}
+        onClose={() => setShowStatusDialog(false)}
+        onSuccess={() => {
+          setShowStatusDialog(false);
+          // The complaint data will be automatically updated by RTK Query
+        }}
+      />
 
       {/* Feedback Dialog */}
       <ComplaintFeedbackDialog

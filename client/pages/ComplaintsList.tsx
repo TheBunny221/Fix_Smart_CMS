@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { useAppSelector } from "../store/hooks";
 import { useGetComplaintsQuery } from "../store/api/complaintsApi";
 import { useDataManager } from "../hooks/useDataManager";
@@ -37,15 +37,34 @@ import {
   Eye,
   Edit,
 } from "lucide-react";
+import ComplaintQuickActions from "../components/ComplaintQuickActions";
+import QuickComplaintModal from "../components/QuickComplaintModal";
+import UpdateComplaintModal from "../components/UpdateComplaintModal";
 
 const ComplaintsList: React.FC = () => {
   const { user, isAuthenticated } = useAppSelector((state) => state.auth);
   const { translations } = useAppSelector((state) => state.language);
+  const [searchParams] = useSearchParams();
 
-  const [searchTerm, setSearchTerm] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [priorityFilter, setPriorityFilter] = useState("all");
+  // Initialize filters from URL parameters
+  const [searchTerm, setSearchTerm] = useState(
+    searchParams.get("search") || "",
+  );
+  const [statusFilter, setStatusFilter] = useState(
+    searchParams.get("status") || "all",
+  );
+  const [priorityFilter, setPriorityFilter] = useState(() => {
+    const priority = searchParams.get("priority");
+    // Handle comma-separated values like "CRITICAL,HIGH"
+    if (priority && priority.includes(",")) {
+      return "high_critical"; // Use a combined filter for UI purposes
+    }
+    return priority || "all";
+  });
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
+  const [isQuickFormOpen, setIsQuickFormOpen] = useState(false);
+  const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
+  const [selectedComplaint, setSelectedComplaint] = useState<any>(null);
 
   // Data management
   const { cacheComplaintsList } = useDataManager();
@@ -63,10 +82,39 @@ const ComplaintsList: React.FC = () => {
   const queryParams = useMemo(() => {
     const params: any = { page: 1, limit: 100 };
     if (statusFilter !== "all") params.status = statusFilter.toUpperCase();
-    if (priorityFilter !== "all") params.priority = priorityFilter.toUpperCase();
+
+    // Handle priority filter including URL-based comma-separated values
+    if (priorityFilter !== "all") {
+      const urlPriority = searchParams.get("priority");
+      if (urlPriority && urlPriority.includes(",")) {
+        // For comma-separated values from URL, send as array
+        params.priority = urlPriority
+          .split(",")
+          .map((p) => p.trim().toUpperCase());
+      } else if (priorityFilter === "high_critical") {
+        // Handle the combined high & critical filter
+        params.priority = ["HIGH", "CRITICAL"];
+      } else {
+        params.priority = priorityFilter.toUpperCase();
+      }
+    }
+
     if (debouncedSearchTerm.trim()) params.search = debouncedSearchTerm.trim();
+
+    // For MAINTENANCE_TEAM users, show only their own complaints
+    if (user?.role === "MAINTENANCE_TEAM") {
+      params.submittedById = user.id;
+    }
+
     return params;
-  }, [statusFilter, priorityFilter, debouncedSearchTerm]);
+  }, [
+    statusFilter,
+    priorityFilter,
+    debouncedSearchTerm,
+    user?.role,
+    user?.id,
+    searchParams,
+  ]);
 
   // Use RTK Query for better authentication handling
   const {
@@ -76,7 +124,9 @@ const ComplaintsList: React.FC = () => {
     refetch,
   } = useGetComplaintsQuery(queryParams, { skip: !isAuthenticated || !user });
 
-  const complaints = Array.isArray(complaintsResponse?.data?.complaints) ? complaintsResponse.data.complaints : [];
+  const complaints = Array.isArray(complaintsResponse?.data?.complaints)
+    ? complaintsResponse.data.complaints
+    : [];
 
   // Cache complaints data when loaded
   useEffect(() => {
@@ -84,7 +134,6 @@ const ComplaintsList: React.FC = () => {
       cacheComplaintsList(complaints);
     }
   }, [complaints, cacheComplaintsList]);
-
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -134,21 +183,25 @@ const ComplaintsList: React.FC = () => {
       {/* Header */}
       <div className="flex justify-between items-start">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Complaints</h1>
-          <p className="text-gray-600">Manage and track all complaints</p>
+          <h1 className="text-3xl font-bold text-gray-900">
+            {user?.role === "MAINTENANCE_TEAM" ? "My Complaints" : "Complaints"}
+          </h1>
+          <p className="text-gray-600">
+            {user?.role === "MAINTENANCE_TEAM"
+              ? "View and manage complaints you have submitted"
+              : "Manage and track all complaints"}
+          </p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => refetch()}>
             <FileText className="h-4 w-4 mr-2" />
             Refresh
           </Button>
-          {user?.role === "CITIZEN" && (
-            <Link to="/complaints/new">
-              <Button>
-                <Plus className="h-4 w-4 mr-2" />
-                New Complaint
-              </Button>
-            </Link>
+          {(user?.role === "CITIZEN" || user?.role === "MAINTENANCE_TEAM") && (
+            <Button onClick={() => setIsQuickFormOpen(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              New Complaint
+            </Button>
           )}
         </div>
       </div>
@@ -157,14 +210,36 @@ const ComplaintsList: React.FC = () => {
       <Card>
         <CardContent className="pt-6">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="relative">
-              <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-              <Input
-                placeholder="Search complaints..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10"
-              />
+            <div className="space-y-1">
+              <div className="relative">
+                <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                <Input
+                  placeholder="Search by ID, description, or location..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10"
+                  title="Search by complaint ID (e.g., KSC0001), description, or location"
+                />
+                {searchTerm && (
+                  <div className="absolute right-3 top-3">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setSearchTerm("")}
+                      className="h-4 w-4 p-0 hover:bg-gray-200"
+                    >
+                      ×
+                    </Button>
+                  </div>
+                )}
+              </div>
+              {searchTerm && (
+                <p className="text-xs text-gray-500">
+                  {searchTerm.match(/^[A-Za-z]/)
+                    ? `Searching for complaint ID: ${searchTerm}`
+                    : `Searching in descriptions and locations`}
+                </p>
+              )}
             </div>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger>
@@ -189,12 +264,10 @@ const ComplaintsList: React.FC = () => {
                 <SelectItem value="MEDIUM">Medium</SelectItem>
                 <SelectItem value="HIGH">High</SelectItem>
                 <SelectItem value="CRITICAL">Critical</SelectItem>
+                <SelectItem value="high_critical">High & Critical</SelectItem>
               </SelectContent>
             </Select>
-            <Button
-              variant="outline"
-              onClick={clearFilters}
-            >
+            <Button variant="outline" onClick={clearFilters}>
               <Filter className="h-4 w-4 mr-2" />
               Clear Filters
             </Button>
@@ -233,7 +306,9 @@ const ComplaintsList: React.FC = () => {
               <FileText className="h-12 w-12 mx-auto text-gray-400 mb-4" />
               <p className="text-gray-500 mb-2">No complaints found</p>
               <p className="text-sm text-gray-400">
-                {searchTerm || statusFilter !== "all" || priorityFilter !== "all"
+                {searchTerm ||
+                statusFilter !== "all" ||
+                priorityFilter !== "all"
                   ? "Try adjusting your filters or search terms"
                   : "Submit your first complaint to get started"}
               </p>
@@ -255,7 +330,7 @@ const ComplaintsList: React.FC = () => {
                 {filteredComplaints.map((complaint) => (
                   <TableRow key={complaint.id}>
                     <TableCell className="font-medium">
-                      #{complaint.id.slice(-6)}
+                      #{complaint.complaintId || complaint.id.slice(-6)}
                     </TableCell>
                     <TableCell>
                       <div className="max-w-xs">
@@ -288,16 +363,25 @@ const ComplaintsList: React.FC = () => {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <div className="flex space-x-2">
+                      <div className="flex items-center gap-2">
                         <Link to={`/complaints/${complaint.id}`}>
-                          <Button size="sm" variant="outline">
-                            <Eye className="h-3 w-3" />
+                          <Button variant="outline" size="sm">
+                            <Eye className="h-4 w-4 mr-1" />
+                            View
                           </Button>
                         </Link>
-                        {(user?.role === "WARD_OFFICER" ||
-                          user?.role === "ADMINISTRATOR") && (
-                          <Button size="sm" variant="outline">
-                            <Edit className="h-3 w-3" />
+                        {(user?.role === "ADMINISTRATOR" ||
+                          user?.role === "WARD_OFFICER") && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setSelectedComplaint(complaint);
+                              setIsUpdateModalOpen(true);
+                            }}
+                          >
+                            <Edit className="h-4 w-4 mr-1" />
+                            Update
                           </Button>
                         )}
                       </div>
@@ -309,6 +393,31 @@ const ComplaintsList: React.FC = () => {
           )}
         </CardContent>
       </Card>
+
+      {/* Quick Complaint Modal */}
+      <QuickComplaintModal
+        isOpen={isQuickFormOpen}
+        onClose={() => setIsQuickFormOpen(false)}
+        onSuccess={(complaintId) => {
+          // Refresh data after successful submission
+          refetch();
+        }}
+      />
+
+      {/* Update Complaint Modal */}
+      <UpdateComplaintModal
+        complaint={selectedComplaint}
+        isOpen={isUpdateModalOpen}
+        onClose={() => {
+          setIsUpdateModalOpen(false);
+          setSelectedComplaint(null);
+        }}
+        onSuccess={() => {
+          setIsUpdateModalOpen(false);
+          setSelectedComplaint(null);
+          refetch();
+        }}
+      />
     </div>
   );
 };
